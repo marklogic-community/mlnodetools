@@ -7,8 +7,8 @@
   "repository": {"type": "git", "url": "https://github.com/adamfowleruk/mlnodetools.git"},
   "version": "8.0.4",
   "bin": {
-    "mljsadmin": {"./util/mljsadmin.js"},
-    "mljsserve": {"./util-run-mljs-webserver.js"}
+    "mljsadmin": "./util/mljsadmin.js",
+    "mljsserve": "./util-run-mljs-webserver.js"
   },
   "dependencies": {
     "mljs": "^8.0.4",
