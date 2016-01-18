@@ -1,0 +1,28 @@
+{
+  "name": "mlnodetools",
+  "description": "Command line tools for working with MarkLogic Server",
+  "bugs": {"url": "https://github.com/adamfowleruk/mljs/issues", "email": "adam.fowler@marklogic.com"},
+  "author": "Adam Fowler <adamfowleruk@gmail.com> (http://www.adamfowler.org/)",
+  "license" "Apache-2.0",
+  "version": "8.0.4",
+  "bin": {
+    "mljsadmin": {"./util/mljsadmin.js"},
+    "mljsserve": {"./util-run-mljs-webserver.js"}
+  },
+  "dependencies": {
+    "mljs": "^8.0.4",
+    "istextorbinary": "^1.0.0",
+    "minimist": "^1.1.0",
+    "q": "^1.1.2",
+    "winston": "^0.8.3",
+    "pkginfo": "^0.3.0",
+    "cycle": "^1.0.3",
+    "colors": "^1.0.3",
+    "stack-trace": "^0.0.9",
+    "safefs": "^3.1.1",
+    "isstream": "^0.1.0",
+    "underscore": "~1.1.7",
+    "websocket": "~1.0.14",
+    "restify": "~2.8.4"
+  }
+}
