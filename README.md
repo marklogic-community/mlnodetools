@@ -7,6 +7,14 @@ This project provides the below tools:-
 - mljsadmin - installs, updates, deploys, captures, and tears down entire MarkLogic Server applications and databases
 - mljsserve - runs an Express based web app that also proxies /v1/ REST API URLs to a MarkLogic Server database app server
 
+## Installing mlnodetools
+
+WARNING: You MUST install mlnodetools GLOBALLY:-
+
+1. npm install -g mlnodetools
+2. If you receive permission warnings, follow the advice on the following page, and then try the above command again: https://docs.npmjs.com/getting-started/fixing-npm-permissions
+3. Test by typing just 'mljsadmin' with no parameters from the command line (this MUST be issued in the root folder of your app)
+
 ## Other tools
 
 In order to create a new MLJS Workplace based web application project, use the companion Yeoman mljsworkplace generator.

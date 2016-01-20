@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "mljs": ">8.0.4",
+    "terminal-kit": "^0.22.7",
     "istextorbinary": "^1.0.0",
     "minimist": "^1.1.0",
     "q": "^1.1.2",
