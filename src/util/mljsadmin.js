@@ -702,16 +702,22 @@ var targets = {
 
       db.triggers(function(result) {
         if (result.inError) {
-          crapout(result.detail);
+          //crapout(result.detail);
+          deferred.reject("Could not retrieve trigger configuration (no triggers.xqy?) source: " +
+            result.details.errorResponse.message);
         } else {
-          // all ok
           // patch this JSON config by reading trigger information from the GET /v1/resources/triggers REST extension in MLJS
+          restapi.triggers = result.doc.summary.triggers;
+          //console.log(restapi);
+          // all ok
 
           fs.writeFile(file, JSON.stringify(restapi), function(err) {
             if (err) return crapout(err);
             ok("    - SUCCESS capturing installed triggers to file: " + file);
             deferred.resolve(params);
           });
+
+          deferred.resolve(params);
         }
       });
     });
