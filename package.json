@@ -11,13 +11,13 @@
     "type": "git",
     "url": "https://github.com/adamfowleruk/mlnodetools.git"
   },
-  "version": "8.0.6",
+  "version": "8.0.7",
   "bin": {
     "mljsadmin": "./src/util/mljsadmin.js",
     "mljsserve": "./src/util/run-mljs-webserver.js"
   },
   "dependencies": {
-    "mljs": "^8.0.4",
+    "mljs": ">8.0.4",
     "istextorbinary": "^1.0.0",
     "minimist": "^1.1.0",
     "q": "^1.1.2",

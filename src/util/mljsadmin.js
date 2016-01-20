@@ -1,5 +1,9 @@
-var mljs = require('mljs'), env = require("../config/env.js"), parseArgs = require("minimist");
+#!/usr/bin/env node
+var mljs = require('mljs');
 var fs = require('fs');
+var pwd = process.env.PWD + "/";
+var env = JSON.parse(fs.readFileSync(pwd + "config/env.js","UTF-8"));
+var parseArgs = require("minimist");
 var Q = require("q");
 var winston = require('winston');
 var itob = require('istextorbinary');
@@ -64,16 +68,16 @@ var usage = function(msg) {
   console.log("       mljsadmin --install");
   console.log("       mljsadmin --install=restapi");
   console.log("       mljsadmin --install=modulesrestapi");
-  console.log("       mljsadmin --install=extensions");
-  console.log("       mljsadmin --install=modules [-m ./modules]");
-  console.log("       mljsadmin --install=triggers");
+  console.log("       mljsadmin --install=extensions"); // works in mlnodetools 8.0.6
+  console.log("       mljsadmin --install=modules [-m ./modules]"); // works in mlnodetools 8.0.6 (both forms tested)
+  console.log("       mljsadmin --install=triggers"); // works in mlnodetools 8.0.6
   console.log("       mljsadmin update");
   console.log("       mljsadmin --update");
   console.log("       mljsadmin --update=restapi NOT IMPLEMENTED");
   console.log("       mljsadmin --update=dbconfig");
   console.log("       mljsadmin --update=modulesdbconfig");
-  console.log("       mljsadmin --update=searchoptions");
-  console.log("       mljsadmin --update=ontology [-o ./data/ontology.ttl] [-g ontologyGraphName]");
+  console.log("       mljsadmin --update=searchoptions"); // works in mlnodetools 8.0.6 (including malformed searchoptions)
+  console.log("       mljsadmin --update=ontology [-o ./data/ontology.ttl] [-g ontologyGraphName]"); // works in mlnodetools 8.0.6 (none specified)
   console.log("       mljsadmin --update=workplace [-w ./data/mljs-workplace.xml]");
   console.log("       mljsadmin capture");
   console.log("       mljsadmin --capture=restapi NOT IMPLEMENTED");
@@ -81,7 +85,7 @@ var usage = function(msg) {
   console.log("       mljsadmin --capture=modulesdbconfig");
   console.log("       mljsadmin --capture=extensions NOT IMPLEMENTED");
   console.log("       mljsadmin --capture=searchoptions");
-  console.log("       mljsadmin --capture=ontology [-o ./data/ontology.ttl] [-g ontologyGraphName]");
+  console.log("       mljsadmin --capture=ontology [-o ./data/ontology.ttl] [-g ontologyGraphName]"); // works in mlnodetools 8.0.6 (although blank ontology is malformed - rest extension issue)
   console.log("       mljsadmin --capture=workplace [-w ./data/mljs-workplace.xml]");
   console.log("       mljsadmin --capture=triggers NOT IMPLEMENTED");
   console.log("       mljsadmin remove");
@@ -105,6 +109,9 @@ var crapout = function(msg) {
   console.log("FATAL ERROR: " + msg);
   console.log(" - Check mljsadmin.log for details");
   process.exit(1);
+};
+var warn = function(msg) {
+  console.log("    - WARN: " + msg);
 };
 
 
@@ -166,7 +173,7 @@ var targets = {
   // WORKS
   install_modules: function(params) {
     console.log(" - install_modules()");
-    var folder = "./modules";
+    var folder = pwd + "modules";
     if (undefined != params && undefined != params.m) {
       folder = params.m;
     }
@@ -201,7 +208,7 @@ var targets = {
     };
     var readFile = function(ext) {
       var deferred2 = Q.defer();
-      fs.readFile('./rest-api/ext/' + ext.name + ".xqy", 'utf8', function (err,content) {
+      fs.readFile(pwd + './rest-api/ext/' + ext.name + ".xqy", 'utf8', function (err,content) {
         if (err) {
           crapout(err);
         }
@@ -211,7 +218,7 @@ var targets = {
       });
       return deferred2.promise;
     };
-    fs.readFile('./data/restapi.json', 'utf8', function (err,data) {
+    fs.readFile(pwd + './data/restapi.json', 'utf8', function (err,data) {
       if (err) {
         crapout(err);
       }
@@ -240,12 +247,18 @@ var targets = {
     var installTrigger = function(triggerInfo) {
       var deferred3 = Q.defer();
       db.installTrigger(triggerInfo,function(result) {
-        console.log("    - SUCCESS - installing trigger " + triggerInfo.name + " : " + triggerInfo.comment);
-        deferred3.resolve(params);
+        console.log("    - result: " + JSON.stringify(result));
+        if (result.inError) {
+          //throw new Error(result.detail);
+          deferred3.reject("Error whilst installing trigger '" + triggerInfo.name + "': " + result.details.errorResponse.message);
+        } else {
+          console.log("    - SUCCESS - installing trigger " + triggerInfo.name + " : " + triggerInfo.comment);
+          deferred3.resolve(params);
+        }
       });
       return deferred3.promise;
     };
-    fs.readFile('./data/restapi.json', 'utf8', function (err,data) {
+    fs.readFile(pwd + './data/restapi.json', 'utf8', function (err,data) {
       if (err) {
         crapout(err);
       }
@@ -263,7 +276,9 @@ var targets = {
           promises[e] = installTrigger(trg);
         }
       }
-      Q.all(promises).then(function(output) {
+      Q.all(promises).catch(function(error) {
+        warn("Could not install all triggers. Fix problem then try mljsadmin --install=triggers again (source: " + error + ")");
+      }).finally(function(output) {
         deferred.resolve(params);
       });
     });
@@ -301,7 +316,7 @@ var targets = {
   update_ontology:function(params) {
     var deferred = Q.defer();
     console.log(" - update_ontology()");
-    var file = './data/ontology.ttl';
+    var file = pwd + 'data/ontology.ttl';
     if (undefined != params && undefined != params.o) {
       file = params.o;
     }
@@ -340,7 +355,7 @@ var targets = {
   update_workplace:function(params) {
     var deferred = Q.defer();
     console.log(" - update_workplace()");
-    var file = './data/mljs-workplace.xml';
+    var file = pwd + 'data/mljs-workplace.xml';
     if (undefined != params && undefined != params.w) {
       file = params.w;
     }
@@ -384,7 +399,7 @@ var targets = {
   __applyDatabasePackage: function(params,name,filename) {
     var deferred = Q.defer();
     // read file
-    var file = "./packages/databases/" + filename + ".xml"; // TODO check and skip
+    var file = pwd + "./packages/databases/" + filename + ".xml"; // TODO check and skip
     console.log("    - reading package xml file: " + file);
     fs.readFile(file, 'utf8', function (err,data) {
       if (err) {
@@ -440,7 +455,7 @@ var targets = {
   update_searchoptions:function() {
     var deferred = Q.defer();
     console.log(" - update_searchoptions()");
-    fs.readdir("./rest-api/config/options", function (err, files) {
+    fs.readdir(pwd + "./rest-api/config/options", function (err, files) {
       if (err) {
         crapout(err);
       }
@@ -448,7 +463,7 @@ var targets = {
       var saveWP = function(file) {
         var deferred2 = Q.defer();
 
-        fs.readFile("./rest-api/config/options/" + file, 'utf8',function(err,data) {
+        fs.readFile(pwd + "./rest-api/config/options/" + file, 'utf8',function(err,data) {
           if (err) {
             crapout(err);
           }
@@ -512,7 +527,7 @@ var targets = {
    **/
   capture_workplace: function(params) {
     var deferred = Q.defer();
-    var file = './data/mljs-workplace.xml';
+    var file = pwd + 'data/mljs-workplace.xml';
     if (undefined != params && undefined != params.w) {
       folder = params.w;
     }
@@ -541,7 +556,7 @@ var targets = {
   capture_ontology: function(params) {
     var deferred = Q.defer();
     console.log(" - capture_ontology()");
-    var file = './data/ontology.ttl';
+    var file = pwd + 'data/ontology.ttl';
     if (undefined != params && undefined != params.o) {
       file = params.o;
     }
@@ -573,7 +588,7 @@ var targets = {
       if (result.inError) {
         crapout(result.detail);
       } else {
-        fs.writeFile("./rest-api/config/options/" + name + ".xml", result.body, function (err) {
+        fs.writeFile(pwd + "./rest-api/config/options/" + name + ".xml", result.body, function (err) {
           if (err) return crapout(err);
           console.log("    - SUCCESS saving search options: " + name);
           deferred.resolve(params);
@@ -632,7 +647,7 @@ var targets = {
        crapout(result.detail);
      } else {
        // add to correct package folder
-       fs.writeFile("./packages/databases/" + filename + ".xml", result.body, function (err) {
+       fs.writeFile(pwd + "./packages/databases/" + filename + ".xml", result.body, function (err) {
          if (err) return crapout(err);
          console.log("    - SUCCESS saving database package: " + name + " as " + filename + ".xml");
          deferred.resolve(params);
@@ -714,7 +729,7 @@ var targets = {
       });
       return deferred3.promise;
     };
-    fs.readFile('./data/restapi.json', 'utf8', function (err,data) {
+    fs.readFile(pwd + './data/restapi.json', 'utf8', function (err,data) {
       if (err) {
         crapout(err);
       }
@@ -753,7 +768,7 @@ var targets = {
     var readFile = function(ext) {
       return removeModule(ext.name);
     };
-    fs.readFile('./data/restapi.json', 'utf8', function (err,data) {
+    fs.readFile(pwd + './data/restapi.json', 'utf8', function (err,data) {
       if (err) {
         crapout(err);
       }
@@ -804,7 +819,7 @@ var targets = {
     //console.log("settings passed: " + JSON.stringify(inheritedSettings));
     // find .load.json in the folder for settings
     var settings = {
-      folder: folder || "./data", recursive: true, ignore: [".load.json", ".initial.json"],
+      folder: (folder || pwd + "./data"), recursive: true, ignore: [".load.json", ".initial.json",".DS_Store"],
       prefix: "/", stripBaseFolder: true, collections: []
       // TODO support linking .jpg and .xml (and XHTML) files automatically
       // TODO support <filename>.meta XML files alongside main files
@@ -858,7 +873,7 @@ var targets = {
         var deferred2 = Q.defer();
         console.log("      - Found: " + settings.folder + "/" + file);
         if (settings.ignore.contains(file)) {
-          console.log("      - Not uploading: " + settings.folder + "/" + file + " (File in ignored list setting)");
+          console.log("      - Not uploading: " + settings.folder + "/" + file + " (File in ignore array in settings file)");
           deferred2.resolve(settings.folder + "/" + file);
         } else {
 
@@ -867,22 +882,12 @@ var targets = {
 
             if (err) {
               //crapout(err);
-              console.log("    - ERROR reading file prior to save: " + settings.folder + "/" + file);
+              console.log("    - INLINE WARN reading file prior to save: " + settings.folder + "/" + file);
               deferred2.resolve(settings.folder + "/" + file);
             } else {
               itob.isText(file,data,function (err,result) {
-
-
-                var props = {
-                };
-
-                if (result === true) {
-                  //console.log("      - is text");
+                if (result) {
                   data = data.toString(); // convert to string if utf8, otherwise leave as binary buffer
-                } else {
-                  //console.log("      - is binary");
-                  //props.format = "binary";
-                  props.contentType = "";
                 }
 
               // actually upload the file once working
@@ -916,13 +921,14 @@ var targets = {
                 }
                 cols += col;
               }
+              var props = {
+              };
               if (undefined != cols && "" != cols) {
                 props.collection=cols;
               }
               if (uri.substring(uri.length - 4) == ".xqy") {
                 props.contentType = "application/xquery";
               }
-              uri = escape(uri);
               db.save(data,uri,props,function(result) {
                 if (result.inError) {
                   // just log the message
