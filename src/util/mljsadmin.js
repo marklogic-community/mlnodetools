@@ -160,7 +160,7 @@ var usage = function(msg) {
   log("       mljsadmin --capture=searchoptions");
   log("       mljsadmin --capture=ontology [-o ./data/ontology.ttl] [-g ontologyGraphName]"); // works in mlnodetools 8.0.6 (although blank ontology is malformed - rest extension issue)
   log("       mljsadmin --capture=workplace [-w ./data/mljs-workplace.xml]");
-  log("       mljsadmin --capture=triggers");
+  log("       mljsadmin --capture=triggers"); // works in mlnodetools 8.0.6
   log("       mljsadmin remove");
   log("       mljsadmin --remove");
   log("       mljsadmin --remove=restapi");
@@ -496,12 +496,12 @@ var targets = {
   __applyDatabasePackage: function(params, name, filename) {
     var deferred = Q.defer();
     // read file
-    var file = pwd + "./packages/databases/" + filename + ".xml"; // TODO check and skip
+    var file = pwd + "packages/databases/" + filename + ".xml"; // TODO check and skip
     log("    - reading package xml file: " + file);
     fs.readFile(file, 'utf8', function(err, data) {
       if (err) {
         //crapout(err);
-        log("    - No package found for: " + filename + ", skipping");
+        warn("No package found for: " + filename + ", skipping");
         deferred.resolve(params);
       } else {
         log("    - Read file: " + file);
@@ -560,7 +560,7 @@ var targets = {
       var saveWP = function(file) {
         var deferred2 = Q.defer();
 
-        fs.readFile(pwd + "./rest-api/config/options/" + file, 'utf8', function(err, data) {
+        fs.readFile(pwd + "rest-api/config/options/" + file, 'utf8', function(err, data) {
           if (err) {
             crapout(err);
           }
@@ -598,6 +598,7 @@ var targets = {
         promises[f] = saveWP(file);
       }
       Q.all(promises).then(function(output) {
+        title(" - update_searchoptions() complete");
         deferred.resolve("All search options installed");
       }); // no fail() as we instantly end the app anyway
       //log("   - Not yet implemented");
@@ -614,10 +615,21 @@ var targets = {
 
   capture: function(params) {
     targets.capture_workplace(params); //.then(targets.capture_ontology());
-    var funcs = [targets.capture_dbconfig, targets.capture_modulesdbconfig, targets.capture_workplace, targets.capture_ontology,
+    var funcs = [targets.capture_confirm, targets.capture_dbconfig, targets.capture_modulesdbconfig,
+      targets.capture_workplace, targets.capture_ontology,
       targets.capture_searchoptions, targets.capture_triggers
     ];
     return funcs.reduce(Q.when, Q(params)); // TODO pass in params
+  },
+
+  capture_confirm: function(params) {
+    var deferred = Q.defer();
+    title(" - capture_confirm()");
+    // read content database name
+    // ask for user confirmation, or selection of other DB
+    // if other, list other content databases
+    // once selected, fetch modules db and triggers db and REST application port for both (if they exist)
+    // save all these settings in env.js so they are available to all other capture commands
   },
 
   // WORKS
@@ -674,6 +686,7 @@ var targets = {
         fs.writeFile(file, result.body, function(err) {
           if (err) return crapout(err);
           ok("    - SUCCESS capturing ontology to file: " + file);
+          title(" - capture_ontology() complete");
           deferred.resolve(params);
         });
       }
@@ -714,6 +727,7 @@ var targets = {
           fs.writeFile(file, JSON.stringify(restapi), function(err) {
             if (err) return crapout(err);
             ok("    - SUCCESS capturing installed triggers to file: " + file);
+            title(" - capture_triggers() complete");
             deferred.resolve(params);
           });
 
@@ -732,9 +746,11 @@ var targets = {
       format: "xml"
     }, function(result) {
       if (result.inError) {
-        crapout(result.detail);
+        //crapout(result.detail);
+        deferred.reject("Could not fetch search options configuration for '" + name + "' source: " +
+          result.details.errorResponse.message);
       } else {
-        fs.writeFile(pwd + "./rest-api/config/options/" + name + ".xml", result.body, function(err) {
+        fs.writeFile(pwd + "rest-api/config/options/" + name + ".xml", result.body, function(err) {
           if (err) return crapout(err);
           ok("    - SUCCESS saving search options: " + name);
           deferred.resolve(params);
@@ -751,10 +767,12 @@ var targets = {
    **/
   capture_searchoptions: function(params) {
     var deferred = Q.defer();
-    title(" - capture_ontology()");
+    title(" - capture_searchoptions()");
     db.searchoptions(function(result) {
       if (result.inError) {
-        crapout(result.detail);
+        //crapout(result.detail);
+        deferred.reject("Could not retrieve search options. Source: " +
+          result.details.errorResponse.message);
       } else {
         var promises = [];
         var files = result.doc;
@@ -762,10 +780,14 @@ var targets = {
           file = files[f];
           promises[f] = targets.__saveSearchOptions(params, file.name, file.uri);
         }
-        Q.all(promises).then(function(output) {
-          log(" - All search options captured");
+        Q.all(promises).catch(function(error) {
+          warn(
+            "Could not capture all searchoptions. Fix problem then try mljsadmin --capture=searchoptions again (source: " +
+            error + ")");
+        }).finally(function(output) {
+          title("  - capture_searchoptions() complete");
           deferred.resolve(params);
-        }); // no fail() as we instantly end the app anyway
+        });
       }
     });
     return deferred.promise;
