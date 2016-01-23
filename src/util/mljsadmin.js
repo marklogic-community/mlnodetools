@@ -969,7 +969,7 @@ var targets = {
     // check for ./data/.initial.json to see what folder to load
     // process as for load
     title(" - load_initial()");
-    return targets._loadFolder(db, "./data", ".initial.json");
+    return targets._loadFolder(db, pwd + "data", ".initial.json");
   },
 
   // WORKS
@@ -988,7 +988,7 @@ var targets = {
     //log("settings passed: " + JSON.stringify(inheritedSettings));
     // find .load.json in the folder for settings
     var settings = {
-      folder: (folder || pwd + "./data"),
+      folder: (folder || pwd + "data"),
       recursive: true,
       ignore: [".load.json", ".initial.json", ".DS_Store"],
       prefix: "/",
@@ -1018,6 +1018,8 @@ var targets = {
         //crapout(err);
         log("    - settings file doesn't exist: " + filename);
         // doesn't exist - ignore and carry on
+      } else {
+        log("    - settings file found: " + filename);
       }
       var json = {};
       if (undefined != data) {
@@ -1032,6 +1034,7 @@ var targets = {
           settings[name] = json[name];
         }
       }
+      //log("JSON settings: " + JSON.stringify(json));
       log("      - Folder now: " + settings.folder);
 
       //log("settings finally: " + JSON.stringify(settings));
@@ -1056,14 +1059,19 @@ var targets = {
 
               if (err) {
                 //crapout(err);
-                log("    - INLINE WARN reading file prior to save: " + settings.folder + "/" +
-                  file);
+                warn("Problem reading file prior to save: " + settings.folder + "/" +
+                  file + " (source: " + err + ")");
                 deferred2.resolve(settings.folder + "/" + file);
               } else {
                 itob.isText(file, data, function(err, result) {
-                  if (result) {
+                  //log("isBuffer?: " + Buffer.isBuffer(data));
+                  var props = {};
+                  if (true === result) {
                     data = data.toString(); // convert to string if utf8, otherwise leave as binary buffer
+                  } else {
+                    props.contentType = "";
                   }
+                  //log("isBuffer? now: " + Buffer.isBuffer(data));
 
                   // actually upload the file once working
 
@@ -1096,13 +1104,19 @@ var targets = {
                     }
                     cols += col;
                   }
-                  var props = {};
                   if (undefined != cols && "" != cols) {
                     props.collection = cols;
                   }
                   if (uri.substring(uri.length - 4) == ".xqy") {
                     props.contentType = "application/xquery";
+                  } else
+                  if (uri.substring(uri.length - 4) == ".pdf") {
+                    props.contentType = "application/pdf";
                   }
+                  //uri = uri.replace(/ /g,"_");
+                  uri = escape(uri);
+                  //log("Doc props: " + JSON.stringify(props));
+                  //log(uri);
                   db.save(data, uri, props, function(result) {
                     if (result.inError) {
                       // just log the message
