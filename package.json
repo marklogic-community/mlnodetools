@@ -17,7 +17,7 @@
     "mljsserve": "./src/util/run-mljs-webserver.js"
   },
   "dependencies": {
-    "mljs": ">8.0.5",
+    "mljs": ">8.0.6",
     "terminal-kit": "^0.22.7",
     "istextorbinary": "^1.0.0",
     "minimist": "^1.1.0",

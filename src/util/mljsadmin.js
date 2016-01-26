@@ -3,7 +3,11 @@
 var mljs = require('mljs');
 var fs = require('fs');
 var pwd = process.env.PWD + "/";
-var env = JSON.parse(fs.readFileSync(pwd + "config/env.js", "UTF-8"));
+var jsonText = fs.readFileSync(pwd + "config/env.js", "UTF-8");
+var env = null;
+if (undefined != jsonText) {
+  env = JSON.parse(jsonText);
+}
 var parseArgs = require("minimist");
 var Q = require("q");
 var winston = require('winston');
@@ -154,12 +158,12 @@ var usage = function(msg) {
   log("       mljsadmin --update=workplace [-w ./data/mljs-workplace.xml]");
   log("       mljsadmin capture");
   log("       mljsadmin --capture=restapi NOT IMPLEMENTED");
-  log("       mljsadmin --capture=dbconfig");
-  log("       mljsadmin --capture=modulesdbconfig");
+  log("       mljsadmin --capture=dbconfig");// works in mlnodetools 8.0.6 (none specified)
+  log("       mljsadmin --capture=modulesdbconfig");// works in mlnodetools 8.0.6 (none specified)
   log("       mljsadmin --capture=extensions NOT IMPLEMENTED");
-  log("       mljsadmin --capture=searchoptions");
+  log("       mljsadmin --capture=searchoptions");// works in mlnodetools 8.0.6 (none specified)
   log("       mljsadmin --capture=ontology [-o ./data/ontology.ttl] [-g ontologyGraphName]"); // works in mlnodetools 8.0.6 (although blank ontology is malformed - rest extension issue)
-  log("       mljsadmin --capture=workplace [-w ./data/mljs-workplace.xml]");
+  log("       mljsadmin --capture=workplace [-w ./data/mljs-workplace.xml]");// works in mlnodetools 8.0.6 (none specified)
   log("       mljsadmin --capture=triggers"); // works in mlnodetools 8.0.6
   log("       mljsadmin remove");
   log("       mljsadmin --remove");
@@ -168,13 +172,15 @@ var usage = function(msg) {
   log("       mljsadmin --remove=extensions");
   log("       mljsadmin --remove=triggers");
   log("       mljsadmin load");
-  log("       mljsadmin --load");
-  log("       mljsadmin --load=initial");
-  log("       mljsadmin --load=folder -f /some/base/folder");
+  log("       mljsadmin --load");// works in mlnodetools 8.0.6 (none specified)
+  log("       mljsadmin --load=initial");// works in mlnodetools 8.0.6 (none specified)
+  log("       mljsadmin --load=folder -f /some/base/folder");// works in mlnodetools 8.0.6 (none specified)
   log("       mljsadmin clean [-i includeCollection1,includeCollection2] [-e excludeCollection3,excludeCollection4]"); // removes all content from database (including workplace)
   log("       mljsadmin reset "); // clean followed by update ontology, workplace, load initial
   log("       mljsadmin patch NOT IMPLEMENTED"); // patch mljs and mljsadmin to latest MASTER release
   log("       mljsadmin devpatch NOT IMPLEMENTED"); // patch mljs and mljsadmin to latest DEV release
+  log("  GLOBAL OPTIONS:-");
+  log("    --conf=<FILENAME> (Use an alternative configuration file to ./config/env.js)");
   process.exit(1);
 };
 
@@ -1138,6 +1144,15 @@ var targets = {
 
 
         var promises = [];
+/*
+        // OPT 1: saveAllParallel
+        // strip out folder
+        // for each file, generate a URI and get a Blob object for it
+        // once all collected, call saveAllParallel
+        saveAllParallel(doc_array,uri_array,transaction_size,thread_count,props,callback,progress_callback);
+
+*/
+        // OPT 2: traditional save on each file
         files.forEach(function(file, idx) {
           fs.lstat(settings.folder + '/' + file, function(err, stats) {
             if (err) {
@@ -1334,19 +1349,32 @@ if (argv._.length == 1) { // just one non option parameter, and no --option= par
         found = true;
         targets[group](argv);
       } else {
-        var funcname = group + "_" + argv[group];
-        var func = targets[funcname];
-        if (undefined != func && 'function' == typeof(func)) {
-          found = true;
-          // call function
-          func(argv);
+        if (argv[group] == "conf" && null == env) {
+          // don't parse this once PER group, just first time (hence null == env above)
+          jsonText = jsonText = fs.readFileSync(, "UTF-8");
+          env = JSON.parse(jsonText);
         } else {
-          usage("Unknown " + group + " target: '" + argv[group] + "'");
+          var funcname = group + "_" + argv[group];
+          var func = targets[funcname];
+          if (undefined != func && 'function' == typeof(func)) {
+            found = true;
+            // call function
+            func(argv);
+          } else {
+            usage("Unknown " + group + " target: '" + argv[group] + "'");
+          }
         }
       }
 
     } // end group function exists if
   } // end target groups or
+
+  // check config exists now
+  if (null == env) {
+    usage("Must execute mljsadmin in a folder that contains ./config/env.js , or use the --conf=FILENAME option");
+  }
+
+  // execute chosen main command
   if (!found) {
     var name = "";
     for (var n in argv) {
