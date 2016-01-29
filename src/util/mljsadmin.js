@@ -1351,8 +1351,8 @@ if (argv._.length == 1) { // just one non option parameter, and no --option= par
       } else {
         if (argv[group] == "conf" && null == env) {
           // don't parse this once PER group, just first time (hence null == env above)
-          jsonText = jsonText = fs.readFileSync(, "UTF-8");
-          env = JSON.parse(jsonText);
+          //jsonText = jsonText = fs.readFileSync(, "UTF-8");
+          //env = JSON.parse(jsonText);
         } else {
           var funcname = group + "_" + argv[group];
           var func = targets[funcname];
