@@ -111,7 +111,8 @@ var WebServer = function(port,connectionManager,appBaseDirectory,restServer,rest
   // HTTP SERVER FIRST
 
   var mimes = {
-    xml: "text/xml", txt: "text/plain", html: "text/html; charset=UTF-8", png: "image/png", jpg: "image/jpeg", gif: "image/gif", js: "text/javascript", css: "text/css"
+    xml: "text/xml", txt: "text/plain", html: "text/html; charset=UTF-8", png: "image/png", jpg: "image/jpeg", gif: "image/gif", js: "text/javascript", css: "text/css",
+    html5: "text/html; charset=UTF-8"
   }; // TODO get MIMEs supported from MarkLogic server
 
 

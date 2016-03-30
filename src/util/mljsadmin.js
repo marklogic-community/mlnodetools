@@ -1119,6 +1119,17 @@ var targets = {
                   if (uri.substring(uri.length - 4) == ".pdf") {
                     props.contentType = "application/pdf";
                   }
+                  if (undefined != settings.security && undefined != settings.security[file]) {
+                    props.permissions = [];
+                    var perms = settings.security[file];
+                    for (var pi = 0;pi < perms.length;pi++) {
+                      var row = perms[pi];
+                      for (var pui = 0;pui < row.permissions.length;pui++) {
+                        var pupdate = row.permissions[pui];
+                        props.permissions.push({"role": row.role, "permission": pupdate});
+                      }
+                    }
+                  }
                   //uri = uri.replace(/ /g,"_");
                   uri = escape(uri);
                   //log("Doc props: " + JSON.stringify(props));
@@ -1127,6 +1138,7 @@ var targets = {
                     if (result.inError) {
                       // just log the message
                       error("    - ERROR saving file to uri: " + uri);
+                      error(result.detail);
                     } else {
                       ok("    - SUCCESS " + settings.folder + "/" + file + " => " + uri +
                         " (" + result.docuri + ")");
