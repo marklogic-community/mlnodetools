@@ -64,11 +64,14 @@ var AlertServer = function(alertListenPort,connectionManager) {
 
     // determine which node the message is for
     var node = req.params.clientid;
-    var client = self.getClient(node);
+    var client = connectionManager.getClient(node);
+
+    var alert = JSON.stringify({response: "alert", content: req.body});
+    console.log("ALERT RECEIVED: " + alert);
 
     if (null != client && undefined != client.websocket) {
       //console.log("Sending client node '" + node + "' message: '" + req.body.toString() + "'") // TESTED - WORKS A TREAT!
-      client.websocket.sendUTF(JSON.stringify({response: "alert", content: req.body.toString()})); // TESTED - WORKS A TREAT! - TODO check this works fine for XML too
+      client.websocket.sendUTF(alert); // TESTED - WORKS A TREAT! - TODO check this works fine for XML too
       // TODO do we want to send a multipart that describes the data???
     }
 

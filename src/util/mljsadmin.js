@@ -77,17 +77,6 @@ db.setLogger(logger);
 db.configure(env);
 //log("ENV: " + JSON.stringify(env));
 
-//var mdb = new mljs();
-//mdb.setLogger(logger);
-var menv = {};
-for (var name in env) {
-  menv[name] = "" + env[name];
-}
-menv.port = menv.modulesport;
-menv.database = menv.modulesdatabase;
-menv.appname = menv.database + "-rest-" + menv.port;
-
-
 
 var crapout = function(msg) {
   //console.log(colors.error("FATAL ERROR: " + msg));
@@ -131,9 +120,41 @@ var title = function(msg) {
   term("\n");
 };
 
+
+var loaddb = null;
+var lenv = {};
+log("dboptions username before lenv: " + db.dboptions.username);
+// Allow special username for loading content vs. administration
+if (undefined != env.loadusername) {
+  loaddb = new mljs();
+  for (var name in env) {
+    lenv[name] = "" + env[name];
+  }
+  lenv.username = env.loadusername;
+  lenv.password = env.loadpassword;
+  loaddb.setLogger(logger);
+  loaddb.configure(lenv);
+} else {
+  loaddb = db;
+}
+log("dboptions username after lenv: " + db.dboptions.username);
+log("load dboptions username after lenv: " + loaddb.dboptions.username);
+
+//var mdb = new mljs();
+//mdb.setLogger(logger);
+var menv = {};
+for (var name in env) {
+  menv[name] = "" + env[name];
+}
+menv.port = menv.modulesport;
+menv.database = menv.modulesdatabase;
+menv.appname = menv.database + "-rest-" + menv.port;
+
+
 //mdb.configure(menv);
 debug("CONTENTENV: " + JSON.stringify(env));
 debug("MODULESENV: " + JSON.stringify(menv));
+debug("LOADENV: " + JSON.stringify(lenv));
 
 
 // TODO validate options. If any look dumb, then fail with usage message and examples
@@ -279,6 +300,8 @@ var targets = {
   install_extensions: function() {
     var deferred = Q.defer();
     title(" - install_extensions()");
+    log("user: " + env.username);
+    log("db user: " + db.dboptions.username);
     // install rest extensions in REST server
     // read data/restapi.json file for list of extensions
     var installModule = function(moduleName, methodArray, content) {
@@ -975,16 +998,330 @@ var targets = {
     // check for ./data/.initial.json to see what folder to load
     // process as for load
     title(" - load_initial()");
-    return targets._loadFolder(db, pwd + "data", ".initial.json");
+    return targets._loadFolder(loaddb, pwd + "data", ".initial.json");
   },
 
   // WORKS
+  load_folderold: function(args) {
+    // check to see if we have a parameter folder or not
+    title(" - load_folderold()");
+    // TODO handle trailing slash in folder name of args.f
+    // TODO windows file / and \ testing
+    return targets._loadFolder(loaddb, args.f, ".load.json");
+  },
+
   load_folder: function(args) {
     // check to see if we have a parameter folder or not
     title(" - load_folder()");
     // TODO handle trailing slash in folder name of args.f
     // TODO windows file / and \ testing
-    return targets._loadFolder(db, args.f, ".load.json");
+    return targets._loadFolder2(loaddb, args.f, ".load.json");
+  },
+
+  _loadFolder2: function(db,folder,settingsFile,base_opt,inheritedSettings) {
+    var deferred = Q.defer();
+    var saveFile = function(settings,file) {
+      var deferred2 = Q.defer();
+      //log("      - Found: " + settings.folder + "/" + file);
+      if (settings.ignore.contains(file)) {
+        log("      - Not uploading: " + settings.folder + "/" + file +
+          " (File in ignore array in settings file)");
+        deferred2.resolve(settings.folder + "/" + file);
+      } else {
+
+        fs.readFile(settings.folder + "/" + file, function(err, data) {
+
+
+          if (err) {
+            //crapout(err);
+            warn("Problem reading file prior to save: " + settings.folder + "/" +
+              file + " (source: " + err + ")");
+            deferred2.resolve(settings.folder + "/" + file);
+          } else {
+            itob.isText(file, data, function(err, result) {
+              //log("isBuffer?: " + Buffer.isBuffer(data));
+              var props = {};
+              if (true === result) {
+                data = data.toString(); // convert to string if utf8, otherwise leave as binary buffer
+              } else {
+                props.contentType = "";
+              }
+              //log("isBuffer? now: " + Buffer.isBuffer(data));
+
+              // actually upload the file once working
+
+              var vf = settings.folder;
+              //log("vf: " + vf);
+              if (settings.stripBaseFolder) {
+                vf = settings.folder.substring(base.length + 1);
+              }
+              //log("vf now: " + vf);
+              /*if (0 == vf.indexOf("/")) {
+                vf = vf.substring(1);
+              }*/
+              if (0 != vf.indexOf("/") && vf.length != 0) {
+                vf = "/" + vf;
+              }
+              //log("vf now now: " + vf);
+              var vff = file;
+              /*if (0 == vff.indexOf("/")) {
+                vff = vff.substring(1);
+              }*/
+              if (0 != vff.indexOf("/")) {
+                vff = "/" + vff;
+              }
+              //log("vf finally: " + vf);
+              var uri = settings.prefix + vf + vff;
+              //log("uri: " + uri);
+              if ("//" == uri.substring(0, 2)) {
+                uri = uri.substring(1); // remove extra slash at front
+              }
+              //log("uri now: " + uri);
+              var cols = "";
+              for (var c = 0, maxc = settings.collections.length, col; c < maxc; c++) {
+                col = settings.collections[c];
+                if (c > 0) {
+                  cols += ",";
+                }
+                cols += col;
+              }
+              if (undefined != cols && "" != cols) {
+                props.collection = cols;
+              }
+              if (uri.substring(uri.length - 4) == ".xqy") {
+                props.contentType = "application/xquery";
+              } else
+              if (uri.substring(uri.length - 4) == ".pdf") {
+                props.contentType = "application/pdf";
+              }
+              if (undefined != settings.security && undefined != settings.security[file]) {
+                props.permissions = [];
+                var perms = settings.security[file];
+                for (var pi = 0;pi < perms.length;pi++) {
+                  var row = perms[pi];
+                  for (var pui = 0;pui < row.permissions.length;pui++) {
+                    var pupdate = row.permissions[pui];
+                    props.permissions.push({"role": row.role, "permission": pupdate});
+                  }
+                }
+              }
+              //uri = uri.replace(/ /g,"_");
+              uri = escape(uri);
+              //log("uri escaped: " + uri);
+              //log("Doc props: " + JSON.stringify(props));
+              //log(uri);
+              db.save(data, uri, props, function(result) {
+                if (result.inError) {
+                  // just log the message
+                  warn("    - ERROR saving file to uri: " + uri);
+                  warn(JSON.stringify(result.details));
+                } else {
+                  ok("    - SUCCESS " + settings.folder + "/" + file + " => " + uri +
+                    " (" + result.docuri + ")");
+                }
+                deferred2.resolve(settings.folder + "/" + file);
+              });
+
+            }); // end itob
+          } // end error if
+        });
+      }
+
+      return deferred2.promise;
+    }; // end saveFile
+
+    var uploadFile = function(ctx) {
+      log("   - uploading file array portion: start: " + ctx.start + " to end: " + ctx.end + " of max: " + ctx.arr.length);
+      var deferred4 = Q.defer();
+
+      var fileInfoArray = ctx.arr;
+      var startIdx = ctx.start;
+      var endIdx = ctx.end;
+
+      var ufpromises = [];
+      for (var i = startIdx;i <= endIdx;i++) {
+        var fileInfo = fileInfoArray[i];
+        //log("file: " + fileInfo.file);
+        ufpromises.push(saveFile(fileInfo.settings,fileInfo.file));
+      }
+      var end = ctx.start + ctx.size + ctx.size - 1;
+      if (end > ctx.arr.length) {
+        end = cts.arr.length - 1;
+      }
+      Q.all(ufpromises).then(function() {
+        deferred4.resolve({arr: ctx.arr,start: ctx.start + ctx.size,end: end, size: ctx.size});
+      });
+
+      return deferred4.promise;
+    };
+
+    var fileInfoArray = []; // hold fileInfoArray elements
+
+    // recursively pass through each folder, loading settings and file path info as you go
+    var processFolder = function(settings) {
+      // This producer only returns a promise, and recursively steps through each folder, returning a deferred promise
+      var deferred2 = Q.defer();
+
+      var filename = settings.folder + "/" + (settingsFile || ".load.json");
+
+
+          // load extra override settings
+          fs.readFile(filename, 'utf8', function(err, data) {
+            if (err) {
+              //crapout(err);
+              log("    - settings file doesn't exist: " + filename);
+              // doesn't exist - ignore and carry on
+            } else {
+              log("    - settings file found: " + filename);
+            }
+            var json = {};
+            if (undefined != data) {
+              //log("settings loaded: " + data);
+              json = JSON.parse(data); // TODO handle parameters with RELATIVE file paths (needed? auto?)
+            }
+            for (var name in json) {
+              if ("folder" == name) {
+                settings.folder = base + "/" + json.folder; // WORKS
+                base = settings.folder; // reset base
+              } else {
+                settings[name] = json[name];
+              }
+            }
+            //log("JSON settings: " + JSON.stringify(json));
+            log("      - Folder now: " + settings.folder);
+
+
+      // load DIRs
+      fs.readdir(settings.folder, function(err, files) {
+        //log("Reading folder: " + settings.folder);
+        if (err) {
+          crapout(err);
+        }
+
+        var dofile = function(file) {
+          //log("dofile called for: " + file);
+          var deferred7 = Q.defer();
+
+          fs.lstat(settings.folder + '/' + file, function(err, stats) {
+            //log("Got stat for: " + settings.folder + "/" + file);
+            if (err) {
+              crapout(settings.folder + "/" + file + " : " + err);
+            }
+            if (stats.isDirectory()) {
+              //get_folder(path+'/'+file,tree[idx].children);
+              //log("Folder: " + folder + " , settings.folder: " + settings.folder + " , next folder: " + settings.folder+"/"+file);
+              if (settings.folder + "/" + file != settings.folder /*&& settings.folder != folder*/ ) { // . and .. in directory listing
+                if (settings.recursive) {
+                  var news = {};
+                  for (var name in settings) {
+                    if (name != "folder") {
+                      news[name] = settings[name];
+                    }
+                  }
+                  news.folder = settings.folder + "/" + file;
+                  //log("Calling processFolder for subFolder: " + settings.folder + "/" + file);
+
+                  processFolder(news).then(function() {
+                    //log(" - Finished processing file: " + settings.folder + "/" + file);
+                    deferred7.resolve();
+                  });
+                } else {
+                  //log("    - Not recursively processing folder: " + settings.folder);
+                  deferred7.resolve();
+                }
+              }
+            } else {
+              // add files to fileinfo list
+              //log("Found normal file: " + settings.folder + "/" + file);
+              fileInfoArray.push({settings: settings,file: file});
+              deferred7.resolve();
+            }
+          });
+
+          return deferred7.promise;
+        };
+
+        // process each file in turn
+        var folderPromises = [];
+        for (var f = 0;f < files.length;f++) {
+          folderPromises[f] = dofile(files[f]);
+        }
+        //log("Total folder promises: " + folderPromises.length);
+        Q.all(folderPromises).then(function() {
+          console.log(" - Finished processing folder: " + settings.folder);
+          deferred2.resolve();
+        });
+
+      }); // after fs.readdir
+
+    }); // end fs.readfile (settings)
+
+      return deferred2.promise;
+    };
+
+
+      var base = base_opt || folder;
+      //log("    - " + folder);
+      //log("settings passed: " + JSON.stringify(inheritedSettings));
+      // find .load.json in the folder for settings
+      var settings = {
+        folder: (folder || pwd + "data"),
+        recursive: true,
+        ignore: [".load.json", ".initial.json", ".DS_Store"],
+        prefix: "/",
+        stripBaseFolder: true,
+        collections: []
+          // TODO support linking .jpg and .xml (and XHTML) files automatically
+          // TODO support <filename>.meta XML files alongside main files
+      };
+      var filename = settings.folder + "/" + (settingsFile || ".load.json");
+      settings.filename = filename;
+
+      //log("settings defaults: " + JSON.stringify(settings));
+
+      for (var name in inheritedSettings) {
+        settings[name] = inheritedSettings[name];
+      }
+
+    // pass these file names and details to the consumer
+    processFolder(settings).then(function() {
+      log("Finished processing all folders");
+      var deferred3 = Q.defer();
+
+      // actually upload each file in groups of 10 (or -thread_count)
+      var promises = [];
+
+      var threads = 20;
+      log("fileInfoArray length: " + fileInfoArray.length);
+      var batches = Math.ceil(fileInfoArray.length / threads);
+      for (var split = 0;split < batches;split++) {
+        var startIdx = split * threads;
+        var endIdx = ((split + 1) * threads) - 1;
+        if (endIdx > fileInfoArray.length - 1) {
+          endIdx = fileInfoArray.length - 1;
+        }
+        promises[split] = uploadFile;
+      }
+      promises[split] = uploadFile; // hack
+      log("Number of file upload splits: " + promises.length);
+      log("Number of file batches: " + batches);
+      //Q.all(promises).then(deferred3.resolve("SUCCESS"));
+      var end = threads - 1;
+      if (end > fileInfoArray.length) {
+        end = fileInfoArray.length - 1;
+      }
+      promises.reduce(Q.when,Q({arr: fileInfoArray,start: 0,end: end,size: threads})).then(function() {
+        log("Finished processing all uploaded files");
+        deferred3.resolve("SUCCESS");
+      });
+
+
+      return deferred3.promise;
+    }).then(function(output){
+      deferred.resolve("SUCCESS");
+    });
+
+    return deferred.promise;
   },
 
   // WORKS
