@@ -4,21 +4,12 @@
 var mljsBackend = require("./backend-mljs.js");
 var fs = require('fs');
 var pwd = process.env.PWD + "/";
-var jsonText = null;
-try {
-  jsonText = fs.readFileSync(pwd + "config/env.js", "UTF-8");
-} catch (e) {
-  // ignore
-  try {
-    jsonText = fs.readFileSync(pwd + "config/env.json", "UTF-8");
-  } catch(e2) {
-    // ignore
-  }
-}
-var env = null;
-if (undefined != jsonText) {
-  env = JSON.parse(jsonText);
-}
+
+var environment = require("./environment.js");
+var defaultEnvironment = new environment();
+defaultEnvironment.load([pwd + "config/env.json",pwd + "config/env.js"]); // the default env file name
+var env = {};
+
 var parseArgs = require("minimist");
 var Q = require("q");
 var winston = require('winston');
@@ -81,8 +72,6 @@ var logger = new(winston.Logger)({
   ]
 });
 
-// TODO get rid of this hack - may break tear down, and should be ignored if env.appname already exists
-env.appname = env.database + "-rest-" + env.port; // fix for naming of rest api instance
 //var db = new mljs();
 // override Winston logger for the command line output and hidden error messages (to a file)
 //db.setLogger(logger);
@@ -151,6 +140,17 @@ if (!backend.hasDriver()) {
   crapout("Missing mljs library. Execute 'npm install -g mljs' and try again.");
 }
 
+var ranSetup = false;
+var setupEnvironment = function() {
+  if (ranSetup) {
+    return;
+  }
+ranSetup = true;
+
+// TODO get rid of this hack - may break tear down, and should be ignored if env.appname already exists
+env = defaultEnvironment.get();
+env.appname = env.database + "-rest-" + env.port; // fix for naming of rest api instance
+
 backend.setAdminDBSettings(env);
 
 var loaddb = null;
@@ -187,6 +187,17 @@ backend.setModulesDBSettings(menv);
 debug("CONTENTENV: " + JSON.stringify(env));
 debug("MODULESENV: " + JSON.stringify(menv));
 debug("LOADENV: " + JSON.stringify(lenv));
+
+};
+
+var ensureEnvironmentExists = function() {
+  setupEnvironment();
+  if (defaultEnvironment.inError()) {
+    warn(defaultEnvironment.getError());
+    usage("Must execute mljsadmin in a folder that contains ./config/env.json , or use the --conf=FILENAME option");
+    process.exit(0);
+  }
+};
 
 
 // TODO validate options. If any look dumb, then fail with usage message and examples
@@ -246,6 +257,7 @@ var targets = {
    * Base install command, calls all other commands in order
    **/
   install: function(params) {
+    ensureEnvironmentExists();
     //targets.install_restapi().then(targets.install_modulesrestapi()).then(targets.install_extensions());
     var funcs = [targets.install_restapi, function() {
         return Q.delay(10000);
@@ -396,6 +408,7 @@ var targets = {
    * Generic update handler - calls all remaining configuration updating handlers
    **/
   update: function(params) {
+    ensureEnvironmentExists();
     title(" - update()");
     //targets.update_ontology()
     //  .then(targets.update_workplace()).then(targets.update_searchoptions());
@@ -577,6 +590,7 @@ var targets = {
 
   // WORKS 8.0.12
   capture: function(params) {
+    ensureEnvironmentExists();
     targets.capture_workplace(params); //.then(targets.capture_ontology());
     var funcs = [/*targets.capture_confirm, */ targets.capture_dbconfig, targets.capture_modulesdbconfig,
       targets.capture_workplace, targets.capture_ontology,
@@ -734,6 +748,7 @@ var targets = {
 
   // WORKS 8.0.12
   remove: function(params) {
+    ensureEnvironmentExists();
     //targets.remove_extensions().then(targets.remove_restapi()).then(targets.remove_modulesrestapi());
     var funcs = [targets.remove_triggers, targets.remove_extensions, targets.remove_restapi, function() {
       return Q.delay(10000);
@@ -835,6 +850,7 @@ var targets = {
 
   // WORKS 8.0.12
   load: function(params) {
+    ensureEnvironmentExists();
     targets.load_initial(params);
   },
 
@@ -844,15 +860,6 @@ var targets = {
     // process as for load
     title(" - load_initial()");
     return targets._loadFolder2(backend.saveContent, pwd + "data", ".initial.json");
-  },
-
-  // DO NOT USE
-  load_folderold: function(args) {
-    // check to see if we have a parameter folder or not
-    title(" - load_folderold()");
-    // TODO handle trailing slash in folder name of args.f
-    // TODO windows file / and \ testing
-    return targets._loadFolder(loaddb, args.f, ".load.json");
   },
 
   // WORKS 8.0.12
@@ -1166,228 +1173,6 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS - OLD - NO LONGER USED - KEPT JUST IN CASE I'VE BORKED THE NEW ONE!!!
-  _loadFolder: function(db, folder, settingsFile, base_opt, inheritedSettings) {
-    var base = base_opt || folder;
-    log("    - " + folder);
-    //log("settings passed: " + JSON.stringify(inheritedSettings));
-    // find .load.json in the folder for settings
-    var settings = {
-      folder: (folder || pwd + "data"),
-      recursive: true,
-      ignore: [".load.json", ".initial.json", ".DS_Store"],
-      prefix: "/",
-      stripBaseFolder: true,
-      collections: []
-        // TODO support linking .jpg and .xml (and XHTML) files automatically
-        // TODO support <filename>.meta XML files alongside main files
-    };
-    var filename = settings.folder + "/" + (settingsFile || ".load.json");
-
-    //log("settings defaults: " + JSON.stringify(settings));
-
-    for (var name in inheritedSettings) {
-      settings[name] = inheritedSettings[name];
-    }
-
-    //log("settings now: " + JSON.stringify(settings));
-
-    // get base folder
-    // process this folder with those settings, recursively
-
-    var deferred = Q.defer();
-
-    // load extra override settings
-    fs.readFile(filename, 'utf8', function(err, data) {
-      if (err) {
-        //crapout(err);
-        log("    - settings file doesn't exist: " + filename);
-        // doesn't exist - ignore and carry on
-      } else {
-        log("    - settings file found: " + filename);
-      }
-      var json = {};
-      if (undefined != data) {
-        //log("settings loaded: " + data);
-        json = JSON.parse(data); // TODO handle parameters with RELATIVE file paths (needed? auto?)
-      }
-      for (var name in json) {
-        if ("folder" == name) {
-          settings.folder = base + "/" + json.folder; // WORKS
-          base = settings.folder; // reset base
-        } else {
-          settings[name] = json[name];
-        }
-      }
-      //log("JSON settings: " + JSON.stringify(json));
-      log("      - Folder now: " + settings.folder);
-
-      //log("settings finally: " + JSON.stringify(settings));
-
-      // list all files and folders and treat these as width first progress update percentages
-      fs.readdir(settings.folder, function(err, files) {
-        if (err) {
-          crapout(err);
-        }
-        //log("    - Found options: " + files);
-        var saveFile = function(file) {
-          var deferred2 = Q.defer();
-          log("      - Found: " + settings.folder + "/" + file);
-          if (settings.ignore.contains(file)) {
-            log("      - Not uploading: " + settings.folder + "/" + file +
-              " (File in ignore array in settings file)");
-            deferred2.resolve(settings.folder + "/" + file);
-          } else {
-
-            fs.readFile(settings.folder + "/" + file, function(err, data) {
-
-
-              if (err) {
-                //crapout(err);
-                warn("Problem reading file prior to save: " + settings.folder + "/" +
-                  file + " (source: " + err + ")");
-                deferred2.resolve(settings.folder + "/" + file);
-              } else {
-                itob.isText(file, data, function(err, result) {
-                  //log("isBuffer?: " + Buffer.isBuffer(data));
-                  var props = {};
-                  if (true === result) {
-                    data = data.toString(); // convert to string if utf8, otherwise leave as binary buffer
-                  } else {
-                    props.contentType = "";
-                  }
-                  //log("isBuffer? now: " + Buffer.isBuffer(data));
-
-                  // actually upload the file once working
-
-                  var vf = settings.folder;
-                  if (settings.stripBaseFolder) {
-                    vf = settings.folder.substring(base.length + 1);
-                  }
-                  /*if (0 == vf.indexOf("/")) {
-                    vf = vf.substring(1);
-                  }*/
-                  if (0 != vf.indexOf("/") && vf.length != 0) {
-                    vf = "/" + vf;
-                  }
-                  var vff = file;
-                  /*if (0 == vff.indexOf("/")) {
-                    vff = vff.substring(1);
-                  }*/
-                  if (0 != vff.indexOf("/")) {
-                    vff = "/" + vff;
-                  }
-                  var uri = settings.prefix + vf + vff;
-                  if ("//" == uri.substring(0, 2)) {
-                    uri = uri.substring(1); // remove extra slash at front
-                  }
-                  var cols = "";
-                  for (var c = 0, maxc = settings.collections.length, col; c < maxc; c++) {
-                    col = settings.collections[c];
-                    if (c > 0) {
-                      cols += ",";
-                    }
-                    cols += col;
-                  }
-                  if (undefined != cols && "" != cols) {
-                    props.collection = cols;
-                  }
-                  if (uri.substring(uri.length - 4) == ".xqy") {
-                    props.contentType = "application/xquery";
-                  } else
-                  if (uri.substring(uri.length - 4) == ".pdf") {
-                    props.contentType = "application/pdf";
-                  }
-                  if (undefined != settings.security && undefined != settings.security[file]) {
-                    props.permissions = [];
-                    var perms = settings.security[file];
-                    for (var pi = 0;pi < perms.length;pi++) {
-                      var row = perms[pi];
-                      for (var pui = 0;pui < row.permissions.length;pui++) {
-                        var pupdate = row.permissions[pui];
-                        props.permissions.push({"role": row.role, "permission": pupdate});
-                      }
-                    }
-                  }
-                  //uri = uri.replace(/ /g,"_");
-                  uri = escape(uri);
-                  //log("Doc props: " + JSON.stringify(props));
-                  //log(uri);
-                  db.save(data, uri, props, function(result) {
-                    if (result.inError) {
-                      // just log the message
-                      error("    - ERROR saving file to uri: " + uri);
-                      error(result.detail);
-                    } else {
-                      ok("    - SUCCESS " + settings.folder + "/" + file + " => " + uri +
-                        " (" + result.docuri + ")");
-                    }
-                    deferred2.resolve(settings.folder + "/" + file);
-                  });
-
-                }); // end itob
-              } // end error if
-            });
-          }
-
-          return deferred2.promise;
-        };
-
-
-        var promises = [];
-/*
-        // OPT 1: saveAllParallel
-        // strip out folder
-        // for each file, generate a URI and get a Blob object for it
-        // once all collected, call saveAllParallel
-        saveAllParallel(doc_array,uri_array,transaction_size,thread_count,props,callback,progress_callback);
-
-*/
-        // OPT 2: traditional save on each file
-        files.forEach(function(file, idx) {
-          fs.lstat(settings.folder + '/' + file, function(err, stats) {
-            if (err) {
-              crapout(settings.folder + "/" + file + " : " + err);
-            }
-            if (stats.isDirectory()) {
-              //get_folder(path+'/'+file,tree[idx].children);
-              //log("Folder: " + folder + " , settings.folder: " + settings.folder + " , next folder: " + settings.folder+"/"+file);
-              if (settings.folder + "/" + file != settings.folder /*&& settings.folder != folder*/ ) { // . and .. in directory listing
-                if (settings.recursive) {
-                  var news = {};
-                  for (var name in settings) {
-                    if (name != "folder") {
-                      news[name] = settings[name];
-                    }
-                  }
-                  promises[idx] = targets._loadFolder(db, settings.folder + "/" + file,
-                    ".load.json", base, news);
-                } else {
-                  log("    - Not recursively processing folder: " + settings.folder);
-                }
-              }
-            } else {
-              promises[idx] = saveFile(file);
-            }
-          });
-        });
-        /*
-        for (var f = 0,maxf = files.length,file;f < maxf;f++) {
-          file = files[f];
-          // TODO test for file or folder
-          promises[f] = saveFile(file);
-        }*/
-        Q.all(promises).then(function(output) {
-          deferred.resolve("Folder processed: " + folder);
-        }); // no fail() as we instantly end the app anyway
-      });
-
-    }); // fs.readFile JSON
-
-
-    return deferred.promise;
-  },
-
   patch: function(params) {
     title(" - patch()");
     error("   - NOT IMPLEMENTED");
@@ -1425,6 +1210,7 @@ var targets = {
   },
 
   selftest: function(params) {
+    ensureEnvironmentExists();
     // RUN INSTALL
     // create test config with random DB name
     // create content db rest API
@@ -1447,6 +1233,7 @@ var targets = {
 
   // WORKS 8.0.12
   clean: function(params) {
+    ensureEnvironmentExists();
     var deferred = Q.defer();
 
     // wipe all data
@@ -1471,8 +1258,14 @@ var targets = {
 
   // WORKS 8.0.12
   reset: function(params) {
+    ensureEnvironmentExists();
     var funcs = [targets.clean, targets.update_ontology, targets.update_workplace, targets.load_initial];
     funcs.reduce(Q.when, Q(params));
+  },
+
+  help: function(params) {
+    // display usage and quit
+    usage();
   }
 
 
@@ -1497,7 +1290,7 @@ b: true,
 c: true,
 beep: 'boop' }
 */
-var targetGroups = ["install", "update", "capture", "remove", "load", "patch", "devpatch", "reset", "clean"];
+var targetGroups = ["install", "update", "capture", "remove", "load", "patch", "devpatch", "reset", "clean","help"];
 if (argv._.length == 1) { // just one non option parameter, and no --option= parameters
   var found = false
   for (var g = 0, maxg = targetGroups.length, group; !found && g < maxg; g++) {
@@ -1537,6 +1330,8 @@ if (argv._.length == 1) { // just one non option parameter, and no --option= par
     if (undefined != argv[group]) {
       if (true === argv[group]) {
         found = true;
+          // check config exists now
+          ensureEnvironmentExists();
         targets[group](argv);
       } else {
         if (argv[group] == "conf" && null == env) {
@@ -1549,6 +1344,8 @@ if (argv._.length == 1) { // just one non option parameter, and no --option= par
           if (undefined != func && 'function' == typeof(func)) {
             found = true;
             // call function
+              // check config exists now
+              ensureEnvironmentExists();
             func(argv);
           } else {
             usage("Unknown " + group + " target: '" + argv[group] + "'");
@@ -1559,10 +1356,6 @@ if (argv._.length == 1) { // just one non option parameter, and no --option= par
     } // end group function exists if
   } // end target groups or
 
-  // check config exists now
-  if (null == env) {
-    usage("Must execute mljsadmin in a folder that contains ./config/env.js , or use the --conf=FILENAME option");
-  }
 
   // execute chosen main command
   if (!found) {
@@ -1572,7 +1365,12 @@ if (argv._.length == 1) { // just one non option parameter, and no --option= par
         name = n;
       }
     }
-    usage("Unknown option: '" + name + "'");
+    if ("h" == name || "help" == name) {
+      found = true;
+      targets.help(argv);
+    } else {
+      usage("Unknown option: '" + name + "'");
+    }
   }
   //} else {
   //  usage("Only one --option=whatever parameter allowed");
