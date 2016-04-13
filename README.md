@@ -5,7 +5,7 @@ and applications built against them.
 
 This project provides the below tools:-
 - mljsadmin - installs, updates, deploys, captures, and tears down entire MarkLogic Server applications and databases
-- mljsserve - runs an Express based web app that also proxies /v1/ REST API URLs to a MarkLogic Server database app server
+- mljsserve - runs an Express based web app that also proxies /v1/ REST API URLs to a MarkLogic Server database app server (For use in DEV and DEMO situations ONLY - exposes the entire /v1/ set of REST endpoints to the web app user - so not for production use!)
 
 ## Recent changes
 2016-Apr-08 - V. 8.0.11 - More reliable folder loading with threading. Support for file permissions. Reliability improvements. Colour coding in terminal window. (No Windows support)

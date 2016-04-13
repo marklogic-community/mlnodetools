@@ -1,9 +1,20 @@
 #!/usr/bin/env node
 
-var mljs = require('mljs');
+//var mljs = require('mljs');
+var mljsBackend = require("./backend-mljs.js");
 var fs = require('fs');
 var pwd = process.env.PWD + "/";
-var jsonText = fs.readFileSync(pwd + "config/env.js", "UTF-8");
+var jsonText = null;
+try {
+  jsonText = fs.readFileSync(pwd + "config/env.js", "UTF-8");
+} catch (e) {
+  // ignore
+  try {
+    jsonText = fs.readFileSync(pwd + "config/env.json", "UTF-8");
+  } catch(e2) {
+    // ignore
+  }
+}
 var env = null;
 if (undefined != jsonText) {
   env = JSON.parse(jsonText);
@@ -13,7 +24,8 @@ var Q = require("q");
 var winston = require('winston');
 var itob = require('istextorbinary');
 //var colors = require('colors/safe');
-var term = require('terminal-kit').terminal; // see https://www.npmjs.com/package/terminal-kit#ref.colors
+//var term = require('terminal-kit').terminal; // see https://www.npmjs.com/package/terminal-kit#ref.colors
+var term = require('chalk');
 
 Q.longStackSupport = true;
 
@@ -69,76 +81,95 @@ var logger = new(winston.Logger)({
   ]
 });
 
-
+// TODO get rid of this hack - may break tear down, and should be ignored if env.appname already exists
 env.appname = env.database + "-rest-" + env.port; // fix for naming of rest api instance
-var db = new mljs();
+//var db = new mljs();
 // override Winston logger for the command line output and hidden error messages (to a file)
-db.setLogger(logger);
-db.configure(env);
+//db.setLogger(logger);
+//db.configure(env);
 //log("ENV: " + JSON.stringify(env));
 
+// TODO abstract logging out to a platform specific file, so that mljsadmin works in windows again.
 
 var crapout = function(msg) {
   //console.log(colors.error("FATAL ERROR: " + msg));
   //console.log(colors.error(" - Check mljsadmin.log for details"));
-  term.red("FATAL ERROR: " + msg);
-  term("\n");
-  term.red(" - Check mljsadmin.log for details");
-  term("\n");
+  console.log(term.red("FATAL ERROR: " + msg));
+  //term("\n");
+  console.log(term.red(" - Check mljsadmin.log for details"));
+  //term("\n");
   process.exit(1);
 };
 var error = function(msg) {
   //console.log(colors.error(msg));
-  term.red(msg);
-  term("\n");
+  console.log(term.red(msg));
+  //term("\n");
 };
 var warn = function(msg) {
   //console.log(colors.warn("    - WARN: " + msg));
   //term.color256(175,"    - WARN: " + msg);
   //term.colorRgb(252,127,0,"    - WARN: " + msg);
-  term.yellow("    - WARN: " + msg);
-  term("\n");
+  console.log(term.yellow("    - WARN: " + msg));
+  //term("\n");
 };
 var log = function(msg) {
   //console.log(colors.info(msg));
-  term(msg);
-  term("\n");
+  console.log(msg);
+  //term("\n");
 };
 var ok = function(msg) {
   //console.log(colors.ok(msg));
-  term.green(msg);
-  term("\n");
+  console.log(term.green(msg));
+  //term("\n");
 };
 var debug = function(msg) {
   //console.log(colors.debug(msg));
-  term.brightBlack(msg);
-  term("\n");
+  //term.brightBlack(msg);
+  console.log(term.gray(msg));
+  //term("\n");
 };
 var title = function(msg) {
   //console.log(colors.title(msg));
-  term.blue.bold(msg);
-  term("\n");
+  console.log(term.cyan.bold(msg));
+  //term("\n");
 };
 
+var monitor = {
+  crapout: crapout, error: error,warn: warn,log: log,ok: ok,debug:debug,title:title
+}; // for passing to backend instance
+
+
+// TODO detect which backend to use
+var backend = new mljsBackend(monitor);
+backend.setLogger(logger);
+
+if (!backend.hasDriver()) {
+  // problem getting hold of MLJS library
+  warn("Could not load MLJS driver: '" + backend.getException().toString() + "'");
+
+  // TODO fall back to other drivers
+  crapout("Missing mljs library. Execute 'npm install -g mljs' and try again.");
+}
+
+backend.setAdminDBSettings(env);
 
 var loaddb = null;
 var lenv = {};
-log("dboptions username before lenv: " + db.dboptions.username);
+for (var name in env) {
+  lenv[name] = "" + env[name];
+}
+//log("dboptions username before lenv: " + db.dboptions.username);
 // Allow special username for loading content vs. administration
 if (undefined != env.loadusername) {
-  loaddb = new mljs();
-  for (var name in env) {
-    lenv[name] = "" + env[name];
-  }
+  //loaddb = new mljs();
   lenv.username = env.loadusername;
   lenv.password = env.loadpassword;
-  loaddb.setLogger(logger);
-  loaddb.configure(lenv);
 } else {
-  loaddb = db;
+  //loaddb = db;
 }
-log("dboptions username after lenv: " + db.dboptions.username);
-log("load dboptions username after lenv: " + loaddb.dboptions.username);
+backend.setContentDBSettings(lenv);
+//log("dboptions username after lenv: " + db.dboptions.username);
+//log("load dboptions username after lenv: " + loaddb.dboptions.username);
 
 //var mdb = new mljs();
 //mdb.setLogger(logger);
@@ -150,6 +181,7 @@ menv.port = menv.modulesport;
 menv.database = menv.modulesdatabase;
 menv.appname = menv.database + "-rest-" + menv.port;
 
+backend.setModulesDBSettings(menv);
 
 //mdb.configure(menv);
 debug("CONTENTENV: " + JSON.stringify(env));
@@ -193,15 +225,15 @@ var usage = function(msg) {
   log("       mljsadmin --remove=extensions");
   log("       mljsadmin --remove=triggers");
   log("       mljsadmin load");
-  log("       mljsadmin --load");// works in mlnodetools 8.0.6 (none specified)
-  log("       mljsadmin --load=initial");// works in mlnodetools 8.0.6 (none specified)
+  log("       mljsadmin --load");// works in mlnodetools 8.0.6-8.0.12 (none specified)
+  log("       mljsadmin --load=initial");// works in mlnodetools 8.0.6-8.0.12 (none specified)
   log("       mljsadmin --load=folder -f /some/base/folder");// works in mlnodetools 8.0.6 (none specified)
   log("       mljsadmin clean [-i includeCollection1,includeCollection2] [-e excludeCollection3,excludeCollection4]"); // removes all content from database (including workplace)
   log("       mljsadmin reset "); // clean followed by update ontology, workplace, load initial
   log("       mljsadmin patch NOT IMPLEMENTED"); // patch mljs and mljsadmin to latest MASTER release
   log("       mljsadmin devpatch NOT IMPLEMENTED"); // patch mljs and mljsadmin to latest DEV release
   log("  GLOBAL OPTIONS:-");
-  log("    --conf=<FILENAME> (Use an alternative configuration file to ./config/env.js)");
+  log("    --conf=<FILENAME> (Use an alternative configuration file to ./config/env.js or env.json)");
   process.exit(1);
 };
 
@@ -209,7 +241,7 @@ var usage = function(msg) {
 
 var targets = {
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Base install command, calls all other commands in order
    **/
@@ -232,45 +264,24 @@ var targets = {
 
 
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Create REST API instance. Optionally create database if it doesn't exist
    **/
   install_restapi: function() {
-    var deferred = Q.defer();
     title(" - install_restapi()");
-    //log("    - config: " + JSON.stringify(env));
-    db.create(function(result) {
-      if (result.inError) {
-        log(JSON.stringify(result));
-        crapout(result.detail);
-      } else {
-        // all ok
-        ok("    - SUCCESS");
-        deferred.resolve("SUCCESS");
-      }
-    });
-    return deferred.promise;
+
+    return backend.createContentDBRestAPI();
   },
 
-  // WORKS
+  // WORKS 8.0.12
   install_modulesrestapi: function() {
-    var deferred = Q.defer();
     title(" - install_modulesrestapi()");
-    //log("    - config: " + JSON.stringify(modulesenv));
-    db.create(menv, function(result) {
-      if (result.inError) {
-        crapout(result.error);
-      } else {
-        // all ok
-        ok("    - SUCCESS");
-        deferred.resolve("SUCCESS");
-      }
-    });
-    return deferred.promise;
+
+    return backend.createModulesDBRestAPI();
   },
 
-  // WORKS
+  // WORKS 8.0.12
   install_modules: function(params) {
     title(" - install_modules()");
     var folder = pwd + "modules";
@@ -280,9 +291,9 @@ var targets = {
 
     // loop through folder recursively and save modules to mdb
 
-    var mdb = new mljs();
-    mdb.setLogger(logger);
-    mdb.configure(menv);
+    //var mdb = new mljs();
+    //mdb.setLogger(logger);
+    //mdb.configure(menv);
 
     var settings = {
       folder: folder,
@@ -293,38 +304,25 @@ var targets = {
       collections: []
     };
     log("calling load folder: " + JSON.stringify(settings));
-    return targets._loadFolder(mdb, folder, settings);
+    return targets._loadFolder2(backend.saveModules, folder, settings);
   },
 
-  // WORKS
+  // WORKS 8.0.12
   install_extensions: function() {
     var deferred = Q.defer();
     title(" - install_extensions()");
     log("user: " + env.username);
-    log("db user: " + db.dboptions.username);
+    //log("db user: " + db.dboptions.username);
     // install rest extensions in REST server
     // read data/restapi.json file for list of extensions
-    var installModule = function(moduleName, methodArray, content) {
-      var deferred3 = Q.defer();
-      db.installExtension(moduleName, methodArray, content, function(result) {
-        if (result.inError) {
-          //warn("FAILED to install REST API extension '" + moduleName + "': " + result.details.errorResponse.message);
-          deferred3.reject("Error whilst installing extension '" + moduleName + "': " + result.details.errorResponse
-            .message);
-        } else {
-          ok("    - SUCCESS - " + moduleName);
-          deferred3.resolve(moduleName);
-        }
-      });
-      return deferred3.promise;
-    };
+
     var readFile = function(ext) {
       var deferred2 = Q.defer();
       fs.readFile(pwd + './rest-api/ext/' + ext.name + ".xqy", 'utf8', function(err, content) {
         if (err) {
           crapout(err);
         }
-        installModule(ext.name, ext.methods, content).then(function(output) {
+        backend.installExtension(ext.name, ext.methods, content).then(function(output) {
           deferred2.resolve(ext.name);
         }).catch(function(err) {
           deferred2.reject(err);
@@ -358,27 +356,12 @@ var targets = {
     return deferred.promise;
   },
 
-
+  // WORKS 8.0.12
   install_triggers: function(params) {
     var deferred = Q.defer();
     title(" - install_triggers()");
     // install rest extensions in REST server
     // read data/restapi.json file for list of extensions
-    var installTrigger = function(triggerInfo) {
-      var deferred3 = Q.defer();
-      db.installTrigger(triggerInfo, function(result) {
-        log("    - result: " + JSON.stringify(result));
-        if (result.inError) {
-          //throw new Error(result.detail);
-          deferred3.reject("Error whilst installing trigger '" + triggerInfo.name + "': " + result.details.errorResponse
-            .message);
-        } else {
-          ok("    - SUCCESS - installing trigger " + triggerInfo.name + " : " + triggerInfo.comment);
-          deferred3.resolve(params);
-        }
-      });
-      return deferred3.promise;
-    };
     fs.readFile(pwd + './data/restapi.json', 'utf8', function(err, data) {
       if (err) {
         crapout(err);
@@ -394,7 +377,7 @@ var targets = {
           // MUST OVERWRITE DB NAME!
           trg.module.database = env.modulesdatabase;
 
-          promises[e] = installTrigger(trg);
+          promises[e] = backend.installTrigger(trg);
         }
       }
       Q.all(promises).catch(function(error) {
@@ -408,7 +391,7 @@ var targets = {
     return deferred.promise;
   },
 
-
+  // WORKS 8.0.12
   /**
    * Generic update handler - calls all remaining configuration updating handlers
    **/
@@ -433,7 +416,7 @@ var targets = {
   },
 
 
-
+  // TODO TBD
   /**
    * Install ontology, if it exists (config/ontology.ttl) in Turtle format ('ontology' named graph) - optional custom name
    **/
@@ -458,23 +441,18 @@ var targets = {
         deferred.resolve(params);
         //crapout(err);
       } else {
-        db.saveGraph(data, graphname, {
-          format: "turtle"
-        }, function(result) {
-          if (result.inError) {
-            crapout(result.detail);
-          } else {
-            // all ok
-            ok("    - SUCCESS installing ontology to graph: " + graphname);
-            deferred.resolve("SUCCESS");
-          }
+        backend.saveGraph(data,graphName).then(function() {
+          ok("    - SUCCESS installing ontology to graph: " + graphname);
+          deferred.resolve("SUCCESS");
+        }).catch(function(error) {
+          crapout(error);
         });
       }
     });
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Install workplace file, if it exists (config/mljs-workplace.xml)
    **/
@@ -493,88 +471,48 @@ var targets = {
       }
       //log("data: " + data);
       //log("data.toString(): " + data.toString());
-      db.saveWorkplace(data, function(result) {
-        if (result.inError) {
-          log(JSON.stringify(result));
-          crapout(result.detail);
-        } else {
-          // all ok
-          ok("    - SUCCESS installing workplace xml file: " + file);
-          deferred.resolve(params);
-        }
+      backend.installWorkplace(data,file).then(function() {
+        deferred.resolve(params);
+      }).catch(function(error) {
+        crapout(error);
       });
     });
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Install extra database configuration if it exists (config/ml-config.xml OR deploy/ml-config.xml (Roxy old files))
    **/
   update_dbconfig: function(params) {
-    title(" - update_dbconfig()");
-    return targets.__applyDatabasePackage(params, env.database, "contentdbconfig");
-  },
-
-  // WORKS
-  update_modulesdbconfig: function(params) {
-    title(" - update_modulesdbconfig()");
-    return targets.__applyDatabasePackage(params, env.modulesdatabase, "modulesdbconfig");
-  },
-
-  __applyDatabasePackage: function(params, name, filename) {
     var deferred = Q.defer();
-    // read file
-    var file = pwd + "packages/databases/" + filename + ".xml"; // TODO check and skip
-    log("    - reading package xml file: " + file);
-    fs.readFile(file, 'utf8', function(err, data) {
-      if (err) {
-        //crapout(err);
-        warn("No package found for: " + filename + ", skipping");
-        deferred.resolve(params);
-      } else {
-        log("    - Read file: " + file);
-        // create/update package
-        db.createPackage(name, data, function(result) {
-          if (result.inError) {
-            crapout(result.detail);
-          } else {
-            log("    - Created package: " + name);
 
-            db.addDatabaseToPackage(name, name, data, function(result) {
-              if (result.inError) {
-                crapout(result.detail);
-              } else {
-                log("    - Added database to package: " + name);
-
-                // apply package
-                db.installPackage(name, function(result) {
-                  if (result.inError) {
-                    crapout(result.detail);
-                  } else {
-                    ok("   - SUCCESS installed database package for " + name);
-
-                    db.deletePackage(name, function(result) {
-                      if (result.inError) {
-                        crapout(result.detail);
-                      } else {
-                        deferred.resolve(params);
-                      }
-
-                    });
-                  }
-                });
-              }
-            });
-          }
-        });
-      }
+    title(" - update_dbconfig()");
+    backend.applyDatabasePackage(env.database, pwd,"contentdbconfig").then(function(result) {
+      deferred.resolve(params);
+    }).catch(function(error) {
+      deferred.reject(error);
     });
+
+    return deferred.promise;
+  },
+
+  // WORKS 8.0.12
+  update_modulesdbconfig: function(params) {
+    var deferred = Q.defer();
+
+    title(" - update_modulesdbconfig()");
+    backend.applyDatabasePackage(env.modulesdatabase, pwd,"modulesdbconfig").then(function(result) {
+      deferred.resolve(params);
+    }).catch(function(error) {
+      deferred.reject(error);
+    });
+
     return deferred.promise;
   },
 
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Install REST API extensions, if they exist (rest-api/ext/*)
    **/
@@ -608,14 +546,10 @@ var targets = {
             // XML
             doc = data; // db.textToXML(data);
           }
-          db.saveSearchOptions(name, doc, function(result) {
-            if (result.inError) {
-              crapout(JSON.stringify(result) + " for " + file);
-            } else {
-              // all ok
-              ok("    - SUCCESS for " + file); // TODO may not work, may need to be shielded in function wrapper
-              deferred2.resolve(file);
-            }
+          backend.installSearchOptions(name,file,doc).then(function() {
+            deferred2.resolve(file);
+          }).catch(function(error) {
+            crapout(error);
           });
         });
 
@@ -641,10 +575,10 @@ var targets = {
    * READ ONLY COMMANDS, FOR PRE-SHARING DEMOS
    */
 
-
+  // WORKS 8.0.12
   capture: function(params) {
     targets.capture_workplace(params); //.then(targets.capture_ontology());
-    var funcs = [targets.capture_confirm, targets.capture_dbconfig, targets.capture_modulesdbconfig,
+    var funcs = [/*targets.capture_confirm, */ targets.capture_dbconfig, targets.capture_modulesdbconfig,
       targets.capture_workplace, targets.capture_ontology,
       targets.capture_searchoptions, targets.capture_triggers
     ];
@@ -661,35 +595,29 @@ var targets = {
     // save all these settings in env.js so they are available to all other capture commands
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Capture workplace configuration
    **/
   capture_workplace: function(params) {
     var deferred = Q.defer();
+
     var file = pwd + 'data/mljs-workplace.xml';
     if (undefined != params && undefined != params.w) {
       folder = params.w;
     }
     title(" - capture_workplace()");
     log("   - saving workplace configuration to file: " + file);
-    db.workplace(function(result) {
-      if (result.inError) {
-        crapout(result.detail); // workplace extension not installed???
-      } else {
-        //log(JSON.stringify(result));
-        // all ok
-        fs.writeFile(file, result.body, function(err) {
-          if (err) return crapout(err);
-          ok("   - SUCCESS capturing workplace to: " + file);
-          deferred.resolve(params);
-        });
-      }
+    backend.captureWorkplace(file).then(function(result) {
+      deferred.resolve(params);
+    }).catch(function(error) {
+      crapout(error);
     });
+
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Capture ontology in Turtle format ('ontology' named graph) - optional custom name
    **/
@@ -705,24 +633,21 @@ var targets = {
       graphname = params.g;
     }
     log("   - Storing ontology in file: " + file + " from ontology graph: " + graphname);
-    db.graph(graphname, {
-      format: "turtle"
-    }, function(result) {
-      if (result.inError) {
-        crapout(result.detail);
-      } else {
-        // all ok
-        fs.writeFile(file, result.body, function(err) {
-          if (err) return crapout(err);
-          ok("    - SUCCESS capturing ontology to file: " + file);
-          title(" - capture_ontology() complete");
-          deferred.resolve(params);
-        });
-      }
+
+    backend.captureGraph(graphname,{},file).then(function(result) {
+      ok("    - SUCCESS capturing ontology to file: " + file);
+      title(" - capture_ontology() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      //crapout(error);
+      warn(" - capture_ontology() errored - perhaps ontology graph name (" + graphname + ") does not exist?");
+      warn(error);
     });
+
     return deferred.promise;
   },
 
+  // WORKS 8.0.12
   capture_triggers: function(params) {
     var deferred = Q.defer();
     title(" - capture_triggers()");
@@ -742,114 +667,59 @@ var targets = {
         restapi = JSON.parse(data);
       }
 
-      db.triggers(function(result) {
-        if (result.inError) {
-          //crapout(result.detail);
-          deferred.reject("Could not retrieve trigger configuration (no triggers.xqy?) source: " +
-            result.details.errorResponse.message);
-        } else {
-          // patch this JSON config by reading trigger information from the GET /v1/resources/triggers REST extension in MLJS
-          restapi.triggers = result.doc.summary.triggers;
-          //console.log(restapi);
-          // all ok
-
-          fs.writeFile(file, JSON.stringify(restapi), function(err) {
-            if (err) return crapout(err);
-            ok("    - SUCCESS capturing installed triggers to file: " + file);
-            title(" - capture_triggers() complete");
-            deferred.resolve(params);
-          });
-
-          deferred.resolve(params);
-        }
+      backend.captureTriggers(file,restapi).then(function(result) {
+        ok("    - SUCCESS capturing installed triggers to file: " + file);
+        title(" - capture_triggers() complete");
+        deferred.resolve(params);
+      }).catch (function(error) {
+        deferred.reject(error);
       });
     });
     return deferred.promise;
   },
 
 
-  __saveSearchOptions: function(params, name, uri) {
-    var deferred = Q.defer();
-
-    db.searchOptions(name, {
-      format: "xml"
-    }, function(result) {
-      if (result.inError) {
-        //crapout(result.detail);
-        deferred.reject("Could not fetch search options configuration for '" + name + "' source: " +
-          result.details.errorResponse.message);
-      } else {
-        fs.writeFile(pwd + "rest-api/config/options/" + name + ".xml", result.body, function(err) {
-          if (err) return crapout(err);
-          ok("    - SUCCESS saving search options: " + name);
-          deferred.resolve(params);
-        });
-      }
-    });
-
-    return deferred.promise;
-  },
-
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Capture all search options (Packaging API?)
    **/
   capture_searchoptions: function(params) {
     var deferred = Q.defer();
     title(" - capture_searchoptions()");
-    db.searchoptions(function(result) {
-      if (result.inError) {
-        //crapout(result.detail);
-        deferred.reject("Could not retrieve search options. Source: " +
-          result.details.errorResponse.message);
-      } else {
-        var promises = [];
-        var files = result.doc;
-        for (var f = 0, maxf = files.length, file; f < maxf; f++) {
-          file = files[f];
-          promises[f] = targets.__saveSearchOptions(params, file.name, file.uri);
-        }
-        Q.all(promises).catch(function(error) {
-          warn(
-            "Could not capture all searchoptions. Fix problem then try mljsadmin --capture=searchoptions again (source: " +
-            error + ")");
-        }).finally(function(output) {
-          title("  - capture_searchoptions() complete");
-          deferred.resolve(params);
-        });
-      }
+    backend.captureSearchOptions(pwd).then(function(result) {
+      title("  - capture_searchoptions() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      deferred.reject(error);
     });
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Capture MarkLogic database configuration (Packaging API?)
    **/
   capture_dbconfig: function(params) {
-    return targets.__captureDatabase(params, env.database, "contentdbconfig");
-  },
-
-  // WORKS
-  capture_modulesdbconfig: function(params) {
-    return targets.__captureDatabase(params, env.modulesdatabase, "modulesdbconfig");
-  },
-
-  __captureDatabase: function(params, name, filename) {
     var deferred = Q.defer();
-    // get content database XML package file
-    db.getDatabasePackage(name, function(result) {
-      if (result.inError) {
-        log(JSON.stringify(result));
-        crapout(result.detail);
-      } else {
-        // add to correct package folder
-        fs.writeFile(pwd + "./packages/databases/" + filename + ".xml", result.body, function(err) {
-          if (err) return crapout(err);
-          ok("    - SUCCESS saving database package: " + name + " as " + filename + ".xml");
-          deferred.resolve(params);
-        });
-      }
+    title(" - capture_dbconfig()");
+    backend.captureDatabase(env.database, pwd,"contentdbconfig").then(function(result) {
+      title(" - capture_dbconfig() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      crapout(error);
+    });
+    return deferred.promise;
+  },
+
+  // WORKS 8.0.12
+  capture_modulesdbconfig: function(params) {
+    var deferred = Q.defer();
+    title(" - capture_modulesdbconfig()");
+    backend.captureDatabase(env.modulesdatabase, pwd,"modulesdbconfig").then(function(result) {
+      title(" - capture_modulesdbconfig() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      crapout(error);
     });
     return deferred.promise;
   },
@@ -862,7 +732,7 @@ var targets = {
 
 
 
-  // WORKS
+  // WORKS 8.0.12
   remove: function(params) {
     //targets.remove_extensions().then(targets.remove_restapi()).then(targets.remove_modulesrestapi());
     var funcs = [targets.remove_triggers, targets.remove_extensions, targets.remove_restapi, function() {
@@ -871,28 +741,17 @@ var targets = {
     funcs.reduce(Q.when, Q(params));
   },
 
-  // WORKS
+  // WORKS 8.0.12
   remove_restapi: function() {
-    var deferred = Q.defer();
     title(" - remove_restapi()");
-    //log("    - config: " + JSON.stringify(env));
-    db.destroy(function(result) {
-      if (result.inError) {
-        crapout(result.detail);
-      } else {
-        // all ok
-        ok("    - SUCCESS");
-        deferred.resolve("SUCCESS");
-      }
-    });
-    return deferred.promise;
 
+    return backend.removeContentDBRestAPI();
   },
 
-  // WORKS
+  // WORKS 8.0.12
   remove_modulesrestapi: function() {
-    var deferred = Q.defer();
     title(" - remove_modulesrestapi()");
+    /*
     var modulesenv = {};
     for (var name in env) {
       modulesenv[name] = env[name];
@@ -900,7 +759,9 @@ var targets = {
     modulesenv.port = modulesenv.modulesport;
     modulesenv.database = modulesenv.modulesdatabase;
     modulesenv.appname = modulesenv.database + "-rest-" + modulesenv.port;
+    */
     //log("    - config: " + JSON.stringify(modulesenv));
+    /*
     db.destroy(modulesenv, function(result) {
       if (result.inError) {
         crapout(result.detail);
@@ -910,24 +771,16 @@ var targets = {
         deferred.resolve("SUCCESS");
       }
     });
-    return deferred.promise;
-
+    return deferred.promise;*/
+    return backend.removeModulesDBRestAPI();
   },
 
-
+  // WORKS 8.0.12
   remove_triggers: function(params) {
     var deferred = Q.defer();
     title(" - remove_triggers()");
     // install rest extensions in REST server
     // read data/restapi.json file for list of extensions
-    var removeTrigger = function(triggerName, triggersDatabase) {
-      var deferred3 = Q.defer();
-      db.removeTrigger(triggerName, triggersDatabase, function(result) {
-        ok("    - SUCCESS - removed trigger " + triggerName);
-        deferred3.resolve(params);
-      });
-      return deferred3.promise;
-    };
     fs.readFile(pwd + './data/restapi.json', 'utf8', function(err, data) {
       if (err) {
         crapout(err);
@@ -940,7 +793,7 @@ var targets = {
           trg = triggers[e];
           // process each extension and install
           // TODO check for xqy vs js implementation (V8 only)
-          promises[e] = removeTrigger(trg.name, env.triggersdatabase);
+          promises[e] = backend.removeTrigger(trg.name, env.triggersdatabase);
         }
       }
       Q.all(promises).then(function(output) {
@@ -950,22 +803,14 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   remove_extensions: function() {
     var deferred = Q.defer();
     title(" - remove_extensions()");
     // install rest extensions in REST server
     // read data/restapi.json file for list of extensions
-    var removeModule = function(moduleName) {
-      var deferred2 = Q.defer();
-      db.removeExtension(moduleName, function(result) {
-        ok("    - SUCCESS - " + moduleName);
-        deferred2.resolve(moduleName);
-      });
-      return deferred2.promise;
-    };
     var readFile = function(ext) {
-      return removeModule(ext.name);
+      return backend.removeExtension(ext.name);
     };
     fs.readFile(pwd + './data/restapi.json', 'utf8', function(err, data) {
       if (err) {
@@ -988,20 +833,20 @@ var targets = {
 
 
 
-  // WORKS
+  // WORKS 8.0.12
   load: function(params) {
     targets.load_initial(params);
   },
 
-  // WORKS
+  // WORKS 8.0.12
   load_initial: function() {
     // check for ./data/.initial.json to see what folder to load
     // process as for load
     title(" - load_initial()");
-    return targets._loadFolder(loaddb, pwd + "data", ".initial.json");
+    return targets._loadFolder2(backend.saveContent, pwd + "data", ".initial.json");
   },
 
-  // WORKS
+  // DO NOT USE
   load_folderold: function(args) {
     // check to see if we have a parameter folder or not
     title(" - load_folderold()");
@@ -1010,15 +855,17 @@ var targets = {
     return targets._loadFolder(loaddb, args.f, ".load.json");
   },
 
+  // WORKS 8.0.12
   load_folder: function(args) {
     // check to see if we have a parameter folder or not
     title(" - load_folder()");
     // TODO handle trailing slash in folder name of args.f
     // TODO windows file / and \ testing
-    return targets._loadFolder2(loaddb, args.f, ".load.json");
+    return targets._loadFolder2(backend.saveContent, args.f, ".load.json");
   },
 
-  _loadFolder2: function(db,folder,settingsFile,base_opt,inheritedSettings) {
+  // WORKS 8.0.12
+  _loadFolder2: function(dbSaveFunc,folder,settingsFile,base_opt,inheritedSettings) {
     var deferred = Q.defer();
     var saveFile = function(settings,file) {
       var deferred2 = Q.defer();
@@ -1110,16 +957,11 @@ var targets = {
               //log("uri escaped: " + uri);
               //log("Doc props: " + JSON.stringify(props));
               //log(uri);
-              db.save(data, uri, props, function(result) {
-                if (result.inError) {
-                  // just log the message
-                  warn("    - ERROR saving file to uri: " + uri);
-                  warn(JSON.stringify(result.details));
-                } else {
-                  ok("    - SUCCESS " + settings.folder + "/" + file + " => " + uri +
-                    " (" + result.docuri + ")");
-                }
+              // Using .call() syntax to ensure correct member variables
+              dbSaveFunc.call(backend,data,uri,props,settings,file).then(function() {
                 deferred2.resolve(settings.folder + "/" + file);
+              }).catch(function(error) {
+                warn(JSON.stringify(error));
               });
 
             }); // end itob
@@ -1324,7 +1166,7 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS - OLD - NO LONGER USED - KEPT JUST IN CASE I'VE BORKED THE NEW ONE!!!
   _loadFolder: function(db, folder, settingsFile, base_opt, inheritedSettings) {
     var base = base_opt || folder;
     log("    - " + folder);
@@ -1582,53 +1424,52 @@ var targets = {
 
   },
 
+  selftest: function(params) {
+    // RUN INSTALL
+    // create test config with random DB name
+    // create content db rest API
+    // create modules db rest API
+    // deploy modules (including test lib)
+    // deploy extensions (including test ext)
+    // load content in to db
+    // TEST INSTALL
+    // invoke extension (look for HTTP 200 response)
+    // fetch content from DB
+    // RUN UPDATE
+    // test update
+    // RUN CAPTURE
+    // test capture
+    // RUN clean
+    // check content db
+    // RUN REMOVE
+    // test remove
+  },
 
-
+  // WORKS 8.0.12
   clean: function(params) {
     var deferred = Q.defer();
 
     // wipe all data
     title(" - clean()");
-    var qb = db.createQuery();
-    var cqt = [];
+    var colsExclude = [];
+    var colsInclude = [];
     if (undefined != params && undefined != params.e) {
-      // exclude
-      var cols = params.e.split(",");
-      for (var c = 0, maxc = cols.length, col; c < maxc; c++) {
-        col = cols[c];
-        cqt.push(qb.collection(col));
-      }
+      colsExclude = params.e.split(",");
     }
-    var iqt = [];
     if (undefined != params && undefined != params.i) {
-      // exclude
-      var cols = params.i.split(",");
-      for (var c = 0, maxc = cols.length, col; c < maxc; c++) {
-        col = cols[c];
-        iqt.push(qb.collection(col));
-      }
+      colsInclude = params.i.split(",");
     }
 
-    var q = qb.and([qb.not(cqt), qb.or(iqt)]);
-    qb.query(q);
-
-    var query = qb.toJson();
-
-    db.deleteUsingSearch(query, function(result) {
-      if (result.inError) {
-        // just log the message
-        error("    - ERROR deleting content using query: " + JSON.stringify(query) + " ERROR: " + JSON.stringify(
-          result));
-      } else {
-        ok("    - SUCCESS deleting content");
-      }
+    backend.clean(colsExclude,colsInclude).then(function(result) {
       deferred.resolve(params);
-
+    }).catch(function(error) {
+      deferred.reject(error);
     });
 
     return deferred.promise;
   },
 
+  // WORKS 8.0.12
   reset: function(params) {
     var funcs = [targets.clean, targets.update_ontology, targets.update_workplace, targets.load_initial];
     funcs.reduce(Q.when, Q(params));
