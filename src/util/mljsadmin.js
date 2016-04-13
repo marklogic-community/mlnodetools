@@ -4,7 +4,17 @@
 var mljsBackend = require("./backend-mljs.js");
 var fs = require('fs');
 var pwd = process.env.PWD + "/";
-var jsonText = fs.readFileSync(pwd + "config/env.js", "UTF-8");
+var jsonText = null;
+try {
+  jsonText = fs.readFileSync(pwd + "config/env.js", "UTF-8");
+} catch (e) {
+  // ignore
+  try {
+    jsonText = fs.readFileSync(pwd + "config/env.json", "UTF-8");
+  } catch(e2) {
+    // ignore
+  }
+}
 var env = null;
 if (undefined != jsonText) {
   env = JSON.parse(jsonText);
@@ -14,7 +24,8 @@ var Q = require("q");
 var winston = require('winston');
 var itob = require('istextorbinary');
 //var colors = require('colors/safe');
-var term = require('terminal-kit').terminal; // see https://www.npmjs.com/package/terminal-kit#ref.colors
+//var term = require('terminal-kit').terminal; // see https://www.npmjs.com/package/terminal-kit#ref.colors
+var term = require('chalk');
 
 Q.longStackSupport = true;
 
@@ -70,7 +81,7 @@ var logger = new(winston.Logger)({
   ]
 });
 
-
+// TODO get rid of this hack - may break tear down, and should be ignored if env.appname already exists
 env.appname = env.database + "-rest-" + env.port; // fix for naming of rest api instance
 //var db = new mljs();
 // override Winston logger for the command line output and hidden error messages (to a file)
@@ -78,55 +89,57 @@ env.appname = env.database + "-rest-" + env.port; // fix for naming of rest api 
 //db.configure(env);
 //log("ENV: " + JSON.stringify(env));
 
+// TODO abstract logging out to a platform specific file, so that mljsadmin works in windows again.
 
 var crapout = function(msg) {
   //console.log(colors.error("FATAL ERROR: " + msg));
   //console.log(colors.error(" - Check mljsadmin.log for details"));
-  term.red("FATAL ERROR: " + msg);
-  term("\n");
-  term.red(" - Check mljsadmin.log for details");
-  term("\n");
+  console.log(term.red("FATAL ERROR: " + msg));
+  //term("\n");
+  console.log(term.red(" - Check mljsadmin.log for details"));
+  //term("\n");
   process.exit(1);
 };
 var error = function(msg) {
   //console.log(colors.error(msg));
-  term.red(msg);
-  term("\n");
+  console.log(term.red(msg));
+  //term("\n");
 };
 var warn = function(msg) {
   //console.log(colors.warn("    - WARN: " + msg));
   //term.color256(175,"    - WARN: " + msg);
   //term.colorRgb(252,127,0,"    - WARN: " + msg);
-  term.yellow("    - WARN: " + msg);
-  term("\n");
+  console.log(term.yellow("    - WARN: " + msg));
+  //term("\n");
 };
 var log = function(msg) {
   //console.log(colors.info(msg));
-  term(msg);
-  term("\n");
+  console.log(msg);
+  //term("\n");
 };
 var ok = function(msg) {
   //console.log(colors.ok(msg));
-  term.green(msg);
-  term("\n");
+  console.log(term.green(msg));
+  //term("\n");
 };
 var debug = function(msg) {
   //console.log(colors.debug(msg));
-  term.brightBlack(msg);
-  term("\n");
+  //term.brightBlack(msg);
+  console.log(term.gray(msg));
+  //term("\n");
 };
 var title = function(msg) {
   //console.log(colors.title(msg));
-  term.blue.bold(msg);
-  term("\n");
+  console.log(term.cyan.bold(msg));
+  //term("\n");
 };
 
 var monitor = {
   crapout: crapout, error: error,warn: warn,log: log,ok: ok,debug:debug,title:title
-}; // for passing to backend
+}; // for passing to backend instance
 
 
-// detect which backend to use
+// TODO detect which backend to use
 var backend = new mljsBackend(monitor);
 backend.setLogger(logger);
 
@@ -212,15 +225,15 @@ var usage = function(msg) {
   log("       mljsadmin --remove=extensions");
   log("       mljsadmin --remove=triggers");
   log("       mljsadmin load");
-  log("       mljsadmin --load");// works in mlnodetools 8.0.6 (none specified)
-  log("       mljsadmin --load=initial");// works in mlnodetools 8.0.6 (none specified)
+  log("       mljsadmin --load");// works in mlnodetools 8.0.6-8.0.12 (none specified)
+  log("       mljsadmin --load=initial");// works in mlnodetools 8.0.6-8.0.12 (none specified)
   log("       mljsadmin --load=folder -f /some/base/folder");// works in mlnodetools 8.0.6 (none specified)
   log("       mljsadmin clean [-i includeCollection1,includeCollection2] [-e excludeCollection3,excludeCollection4]"); // removes all content from database (including workplace)
   log("       mljsadmin reset "); // clean followed by update ontology, workplace, load initial
   log("       mljsadmin patch NOT IMPLEMENTED"); // patch mljs and mljsadmin to latest MASTER release
   log("       mljsadmin devpatch NOT IMPLEMENTED"); // patch mljs and mljsadmin to latest DEV release
   log("  GLOBAL OPTIONS:-");
-  log("    --conf=<FILENAME> (Use an alternative configuration file to ./config/env.js)");
+  log("    --conf=<FILENAME> (Use an alternative configuration file to ./config/env.js or env.json)");
   process.exit(1);
 };
 
@@ -228,7 +241,7 @@ var usage = function(msg) {
 
 var targets = {
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Base install command, calls all other commands in order
    **/
@@ -251,7 +264,7 @@ var targets = {
 
 
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Create REST API instance. Optionally create database if it doesn't exist
    **/
@@ -261,14 +274,14 @@ var targets = {
     return backend.createContentDBRestAPI();
   },
 
-  // WORKS
+  // WORKS 8.0.12
   install_modulesrestapi: function() {
     title(" - install_modulesrestapi()");
 
     return backend.createModulesDBRestAPI();
   },
 
-  // WORKS
+  // WORKS 8.0.12
   install_modules: function(params) {
     title(" - install_modules()");
     var folder = pwd + "modules";
@@ -294,7 +307,7 @@ var targets = {
     return targets._loadFolder2(backend.saveModules, folder, settings);
   },
 
-  // WORKS
+  // WORKS 8.0.12
   install_extensions: function() {
     var deferred = Q.defer();
     title(" - install_extensions()");
@@ -343,7 +356,7 @@ var targets = {
     return deferred.promise;
   },
 
-
+  // WORKS 8.0.12
   install_triggers: function(params) {
     var deferred = Q.defer();
     title(" - install_triggers()");
@@ -378,7 +391,7 @@ var targets = {
     return deferred.promise;
   },
 
-
+  // WORKS 8.0.12
   /**
    * Generic update handler - calls all remaining configuration updating handlers
    **/
@@ -403,7 +416,7 @@ var targets = {
   },
 
 
-
+  // TODO TBD
   /**
    * Install ontology, if it exists (config/ontology.ttl) in Turtle format ('ontology' named graph) - optional custom name
    **/
@@ -439,7 +452,7 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Install workplace file, if it exists (config/mljs-workplace.xml)
    **/
@@ -458,7 +471,7 @@ var targets = {
       }
       //log("data: " + data);
       //log("data.toString(): " + data.toString());
-      backend.saveWorkplace(data).then(function() {
+      backend.installWorkplace(data,file).then(function() {
         deferred.resolve(params);
       }).catch(function(error) {
         crapout(error);
@@ -467,7 +480,7 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Install extra database configuration if it exists (config/ml-config.xml OR deploy/ml-config.xml (Roxy old files))
    **/
@@ -484,7 +497,7 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   update_modulesdbconfig: function(params) {
     var deferred = Q.defer();
 
@@ -499,7 +512,7 @@ var targets = {
   },
 
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Install REST API extensions, if they exist (rest-api/ext/*)
    **/
@@ -562,10 +575,10 @@ var targets = {
    * READ ONLY COMMANDS, FOR PRE-SHARING DEMOS
    */
 
-
+  // WORKS 8.0.12
   capture: function(params) {
     targets.capture_workplace(params); //.then(targets.capture_ontology());
-    var funcs = [targets.capture_confirm, targets.capture_dbconfig, targets.capture_modulesdbconfig,
+    var funcs = [/*targets.capture_confirm, */ targets.capture_dbconfig, targets.capture_modulesdbconfig,
       targets.capture_workplace, targets.capture_ontology,
       targets.capture_searchoptions, targets.capture_triggers
     ];
@@ -582,7 +595,7 @@ var targets = {
     // save all these settings in env.js so they are available to all other capture commands
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Capture workplace configuration
    **/
@@ -604,7 +617,7 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Capture ontology in Turtle format ('ontology' named graph) - optional custom name
    **/
@@ -621,17 +634,20 @@ var targets = {
     }
     log("   - Storing ontology in file: " + file + " from ontology graph: " + graphname);
 
-    backend.captureGraph(graphName,settings,file).then(function(result) {
+    backend.captureGraph(graphname,{},file).then(function(result) {
       ok("    - SUCCESS capturing ontology to file: " + file);
       title(" - capture_ontology() complete");
       deferred.resolve(params);
     }).catch(function(error) {
-      crapout(error);
+      //crapout(error);
+      warn(" - capture_ontology() errored - perhaps ontology graph name (" + graphname + ") does not exist?");
+      warn(error);
     });
 
     return deferred.promise;
   },
 
+  // WORKS 8.0.12
   capture_triggers: function(params) {
     var deferred = Q.defer();
     title(" - capture_triggers()");
@@ -663,15 +679,15 @@ var targets = {
   },
 
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Capture all search options (Packaging API?)
    **/
   capture_searchoptions: function(params) {
     var deferred = Q.defer();
     title(" - capture_searchoptions()");
-    backend.captureSearchOptions().then(function(result) {
-      self._monitor.title("  - capture_searchoptions() complete");
+    backend.captureSearchOptions(pwd).then(function(result) {
+      title("  - capture_searchoptions() complete");
       deferred.resolve(params);
     }).catch(function(error) {
       deferred.reject(error);
@@ -679,13 +695,15 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   /**
    * Capture MarkLogic database configuration (Packaging API?)
    **/
   capture_dbconfig: function(params) {
     var deferred = Q.defer();
-    backend.captureDatabase(params, env.database, pwd,"contentdbconfig").then(function(result) {
+    title(" - capture_dbconfig()");
+    backend.captureDatabase(env.database, pwd,"contentdbconfig").then(function(result) {
+      title(" - capture_dbconfig() complete");
       deferred.resolve(params);
     }).catch(function(error) {
       crapout(error);
@@ -693,10 +711,12 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   capture_modulesdbconfig: function(params) {
     var deferred = Q.defer();
-    backend.captureDatabase(params, env.modulesdatabase, pwd,"modulesdbconfig").then(function(result) {
+    title(" - capture_modulesdbconfig()");
+    backend.captureDatabase(env.modulesdatabase, pwd,"modulesdbconfig").then(function(result) {
+      title(" - capture_modulesdbconfig() complete");
       deferred.resolve(params);
     }).catch(function(error) {
       crapout(error);
@@ -712,7 +732,7 @@ var targets = {
 
 
 
-  // WORKS
+  // WORKS 8.0.12
   remove: function(params) {
     //targets.remove_extensions().then(targets.remove_restapi()).then(targets.remove_modulesrestapi());
     var funcs = [targets.remove_triggers, targets.remove_extensions, targets.remove_restapi, function() {
@@ -721,14 +741,14 @@ var targets = {
     funcs.reduce(Q.when, Q(params));
   },
 
-  // WORKS
+  // WORKS 8.0.12
   remove_restapi: function() {
     title(" - remove_restapi()");
 
     return backend.removeContentDBRestAPI();
   },
 
-  // WORKS
+  // WORKS 8.0.12
   remove_modulesrestapi: function() {
     title(" - remove_modulesrestapi()");
     /*
@@ -755,7 +775,7 @@ var targets = {
     return backend.removeModulesDBRestAPI();
   },
 
-
+  // WORKS 8.0.12
   remove_triggers: function(params) {
     var deferred = Q.defer();
     title(" - remove_triggers()");
@@ -783,7 +803,7 @@ var targets = {
     return deferred.promise;
   },
 
-  // WORKS
+  // WORKS 8.0.12
   remove_extensions: function() {
     var deferred = Q.defer();
     title(" - remove_extensions()");
@@ -813,12 +833,12 @@ var targets = {
 
 
 
-  // WORKS
+  // WORKS 8.0.12
   load: function(params) {
     targets.load_initial(params);
   },
 
-  // WORKS
+  // WORKS 8.0.12
   load_initial: function() {
     // check for ./data/.initial.json to see what folder to load
     // process as for load
@@ -826,7 +846,7 @@ var targets = {
     return targets._loadFolder2(backend.saveContent, pwd + "data", ".initial.json");
   },
 
-  // WORKS
+  // DO NOT USE
   load_folderold: function(args) {
     // check to see if we have a parameter folder or not
     title(" - load_folderold()");
@@ -835,6 +855,7 @@ var targets = {
     return targets._loadFolder(loaddb, args.f, ".load.json");
   },
 
+  // WORKS 8.0.12
   load_folder: function(args) {
     // check to see if we have a parameter folder or not
     title(" - load_folder()");
@@ -843,6 +864,7 @@ var targets = {
     return targets._loadFolder2(backend.saveContent, args.f, ".load.json");
   },
 
+  // WORKS 8.0.12
   _loadFolder2: function(dbSaveFunc,folder,settingsFile,base_opt,inheritedSettings) {
     var deferred = Q.defer();
     var saveFile = function(settings,file) {
@@ -935,7 +957,8 @@ var targets = {
               //log("uri escaped: " + uri);
               //log("Doc props: " + JSON.stringify(props));
               //log(uri);
-              dbSaveFunc(data,uri,props).then(function() {
+              // Using .call() syntax to ensure correct member variables
+              dbSaveFunc.call(backend,data,uri,props,settings,file).then(function() {
                 deferred2.resolve(settings.folder + "/" + file);
               }).catch(function(error) {
                 warn(JSON.stringify(error));
@@ -1401,8 +1424,28 @@ var targets = {
 
   },
 
+  selftest: function(params) {
+    // RUN INSTALL
+    // create test config with random DB name
+    // create content db rest API
+    // create modules db rest API
+    // deploy modules (including test lib)
+    // deploy extensions (including test ext)
+    // load content in to db
+    // TEST INSTALL
+    // invoke extension (look for HTTP 200 response)
+    // fetch content from DB
+    // RUN UPDATE
+    // test update
+    // RUN CAPTURE
+    // test capture
+    // RUN clean
+    // check content db
+    // RUN REMOVE
+    // test remove
+  },
 
-
+  // WORKS 8.0.12
   clean: function(params) {
     var deferred = Q.defer();
 
@@ -1426,6 +1469,7 @@ var targets = {
     return deferred.promise;
   },
 
+  // WORKS 8.0.12
   reset: function(params) {
     var funcs = [targets.clean, targets.update_ontology, targets.update_workplace, targets.load_initial];
     funcs.reduce(Q.when, Q(params));

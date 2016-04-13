@@ -48,6 +48,7 @@ backend.prototype.setAdminDBSettings = function(settings) {
   this._dbAdmin = new this._driver();
   this._dbAdmin.configure(settings);
   this._dbAdmin.setLogger(this._logger);
+  this._dbContent = this._dbAdmin;
 };
 
 backend.prototype.setModulesDBSettings = function(settings) {
@@ -128,7 +129,7 @@ backend.prototype.installTrigger = function(triggerInfo) {
     var deferred = Q.defer();
     var self = this;
 
-    this._dbContent.installTrigger(triggerInfo, function(result) {
+    self._dbAdmin.installTrigger(triggerInfo, function(result) {
       self._monitor.log("    - result: " + JSON.stringify(result));
       if (result.inError) {
         //throw new Error(result.detail);
@@ -146,7 +147,7 @@ backend.prototype.captureTriggers = function(file,restapi) {
   var deferred = Q.defer();
   var self = this;
 
-  this._dbContent.triggers(function(result) {
+  self._dbAdmin.triggers(function(result) {
     if (result.inError) {
       //crapout(result.detail);
       deferred.reject("Could not retrieve trigger configuration (no triggers.xqy?) source: " +
@@ -174,7 +175,7 @@ backend.prototype.installGraph = function(data,graphName) {
   var deferred = Q.defer();
   var self = this;
 
-  this._dbContent.saveGraph(data, graphname, {
+  self._dbAdmin.saveGraph(data, graphname, {
     format: "turtle"
   }, function(result) {
     if (result.inError) {
@@ -191,7 +192,7 @@ backend.prototype.captureGraph = function(graphName,settings,file) {
   var deferred = Q.defer();
   var self = this;
 
-  this._dbContent.graph(graphName, settings, function(result) {
+  self._dbAdmin.graph(graphName, settings, function(result) {
     if (result.inError) {
       deferred.reject(result.detail);
     } else {
@@ -209,11 +210,11 @@ backend.prototype.captureGraph = function(graphName,settings,file) {
   return deferred.promise;
 };
 
-backend.prototype.installWorkplace = function(data) {
+backend.prototype.installWorkplace = function(data,file) {
   var deferred = Q.defer();
   var self = this;
 
-  this._dbContent.saveWorkplace(data, function(result) {
+  self._dbAdmin.saveWorkplace(data, function(result) {
     if (result.inError) {
       self._monitor.log(JSON.stringify(result));
       deferred.reject(result.detail);
@@ -226,11 +227,11 @@ backend.prototype.installWorkplace = function(data) {
   return deferred.promise;
 };
 
-backend.prototype.captureWorkplace = function() {
+backend.prototype.captureWorkplace = function(file) {
   var deferred = Q.defer();
   var self = this;
 
-  db.workplace(function(result) {
+  self._dbAdmin.workplace(function(result) {
     if (result.inError) {
       deferred.reject(result.detail); // workplace extension not installed???
     } else {
@@ -331,7 +332,7 @@ backend.prototype.removeContentDBRestAPI = function() {
   var self = this;
 
   //log("    - config: " + JSON.stringify(env));
-  this._dbContent.destroy(function(result) {
+  self._dbAdmin.destroy(function(result) {
     if (result.inError) {
       deferred.reject(result.detail);
     } else {
@@ -364,7 +365,7 @@ backend.prototype.removeTrigger = function(triggerName, triggersDatabase) {
   var deferred = Q.defer();
   var self = this;
 
-  this._dbContent.removeTrigger(triggerName, triggersDatabase, function(result) {
+  self._dbAdmin.removeTrigger(triggerName, triggersDatabase, function(result) {
     if (result.inError) {
       deferred.reject(result.detail);
     } else {
@@ -379,7 +380,7 @@ backend.prototype.removeExtension = function(moduleName) {
   var deferred = Q.defer();
   var self = this;
 
-  this._dbContent.removeExtension(moduleName, function(result) {
+  self._dbAdmin.removeExtension(moduleName, function(result) {
     if (result.inError) {
       deferred.reject(result.detail);
     } else {
@@ -390,7 +391,7 @@ backend.prototype.removeExtension = function(moduleName) {
   return deferred.promise;
 };
 
-backend.prototype.saveContent = function(data,uri,props) {
+backend.prototype.saveContent = function(data,uri,props,settings,file) {
   var self = this;
   var deferred = Q.defer();
 
@@ -409,7 +410,7 @@ backend.prototype.saveContent = function(data,uri,props) {
   return deferred.promise;
 };
 
-backend.prototype.saveModules = function(data,uri,props) {
+backend.prototype.saveModules = function(data,uri,props,settings,file) {
   var self = this;
   var deferred = Q.defer();
 
@@ -432,7 +433,7 @@ backend.prototype.installSearchOptions = function(name,file,doc) {
   var deferred = Q.defer();
   var self = this;
 
-  db.saveSearchOptions(name, doc, function(result) {
+  self._dbAdmin.saveSearchOptions(name, doc, function(result) {
     if (result.inError) {
       deferred.reject(JSON.stringify(result) + " for " + file);
     } else {
@@ -445,7 +446,7 @@ backend.prototype.installSearchOptions = function(name,file,doc) {
   return deferred.promise;
 };
 
-backend.prototype.captureSearchOptions = function() {
+backend.prototype.captureSearchOptions = function(pwd) {
     var deferred = Q.defer();
     var self = this;
 
@@ -460,7 +461,7 @@ backend.prototype.captureSearchOptions = function() {
       var files = result.doc;
       for (var f = 0, maxf = files.length, file; f < maxf; f++) {
         file = files[f];
-        promises[f] = self._captureSearchOptionsFile(file.name, file.uri);
+        promises[f] = self._captureSearchOptionsFile(pwd,file.name, file.uri);
       }
       Q.all(promises).catch(function(error) {
         self._monitor.warn(
@@ -471,19 +472,22 @@ backend.prototype.captureSearchOptions = function() {
       });
     }
   });
+
+  return deferred.promise;
 };
 
-backend.prototype._captureSearchOptionsFile = function(name, uri) {
+backend.prototype._captureSearchOptionsFile = function(pwd,name, uri) {
     var deferred = Q.defer();
     var self = this;
 
-    this._dbContent.searchOptions(name, {
+    self._dbAdmin.searchOptions(name, {
       format: "xml"
     }, function(result) {
       if (result.inError) {
         //crapout(result.detail);
         deferred.reject("Could not fetch search options configuration for '" + name + "' source: " +
-          result.details.errorResponse.message);
+          result.detail);
+        self._monitor.log(JSON.stringify(result));
       } else {
         fs.writeFile(pwd + "rest-api/config/options/" + name + ".xml", result.body, function(err) {
           if (err) {
@@ -503,7 +507,7 @@ backend.prototype.clean = function(colsExclude,colsInclude) {
   var deferred = Q.defer();
   var self = this;
 
-  var qb = this._dbContent.createQuery();
+  var qb = self._dbAdmin.createQuery();
   var cqt = [];
     // exclude
     for (var c = 0, maxc = colsExclude.length, col; c < maxc; c++) {
@@ -522,7 +526,7 @@ backend.prototype.clean = function(colsExclude,colsInclude) {
 
   var query = qb.toJson();
 
-  this._dbContent.deleteUsingSearch(query, function(result) {
+  self._dbAdmin.deleteUsingSearch(query, function(result) {
     if (result.inError) {
       // just log the message
       self._monitor.warn("    - WARN deleting content using query: " + JSON.stringify(query) + " ERROR: " + JSON.stringify(

@@ -1,0 +1,10 @@
+{
+  "extensions": [
+    {"name": "version", "methods": ["GET"]},
+    {"name": "workplace", "methods": ["GET","POST"]},
+    {"name": "triggers", "methods": ["PUT","DELETE"]}
+  ],
+  "transforms": [],
+  "triggers": [
+  ]
+}
