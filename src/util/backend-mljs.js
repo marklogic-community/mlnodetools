@@ -68,12 +68,19 @@ backend.prototype.setContentDBSettings = function(settings) {
 
 
 backend.prototype.createContentDBRestAPI = function() {
-  if (undefined == this._dbAdmin) {throw new Exception("Admin connection has not been configured");}
+  //console.log("createContentDBRestAPI");
+  if (undefined == this._dbAdmin) {
+    //console.log("dbAdmin undefined");
+    throw new Exception("Admin connection has not been configured");
+  }
+  //console.log("after undefined check");
 
   var deferred = Q.defer();
   var self = this;
   //log("    - config: " + JSON.stringify(env));
+  //console.log("calling create");
   this._dbAdmin.create(function(result) {
+    //console.log("have create result: " + result);
     if (result.inError) {
       self._monitor.log(JSON.stringify(result));
       //crapout(result.detail);
@@ -84,11 +91,14 @@ backend.prototype.createContentDBRestAPI = function() {
       deferred.resolve("SUCCESS");
     }
   });
+  //console.log("after create call");
   return deferred.promise;
 };
 
 backend.prototype.createModulesDBRestAPI = function() {
-  if (undefined == this._dbModules) {throw new Exception("Admin connection has not been configured");}
+  if (undefined == this._dbAdmin) {
+    throw new Exception("Admin connection has not been configured");
+  }
 
   var deferred = Q.defer();
   var self = this;
@@ -96,6 +106,7 @@ backend.prototype.createModulesDBRestAPI = function() {
   this._dbModules.create(function(result) {
     if (result.inError) {
       //crapout(result.error);
+      self._monitor.error(result.error);
       deferred.reject(result.error); // TODO verify not result.detail
     } else {
       // all ok
@@ -114,6 +125,7 @@ backend.prototype.installExtension = function(moduleName, methodArray, content) 
     this._dbAdmin.installExtension(moduleName, methodArray, content, function(result) {
       if (result.inError) {
         //warn("FAILED to install REST API extension '" + moduleName + "': " + result.details.errorResponse.message);
+        self._monitor.warn("Error whilst installing extension '" + moduleName + "': " + JSON.stringify(result));
         deferred.reject("Error whilst installing extension '" + moduleName + "': " + result.details.errorResponse
           .message);
       } else {
@@ -239,6 +251,7 @@ backend.prototype.captureWorkplace = function(file) {
       // all ok
       fs.writeFile(file, result.body, function(err) {
         if (err)  {
+          self._monitor.error(err);
           deferred.reject(err);
         } else {
           self._monitor.ok("   - SUCCESS capturing workplace to: " + file);
@@ -334,6 +347,7 @@ backend.prototype.removeContentDBRestAPI = function() {
   //log("    - config: " + JSON.stringify(env));
   self._dbAdmin.destroy(function(result) {
     if (result.inError) {
+      self._monitor.error(result.detail);
       deferred.reject(result.detail);
     } else {
       // all ok
@@ -351,7 +365,8 @@ backend.prototype.removeModulesDBRestAPI = function() {
   //log("    - config: " + JSON.stringify(env));
   this._dbModules.destroy(function(result) {
     if (result.inError) {
-      deferred.reject(result.detail);
+      self._monitor.error(JSON.stringify(result));
+      deferred.reject(result);
     } else {
       // all ok
       self._monitor.ok("    - SUCCESS");
@@ -367,6 +382,7 @@ backend.prototype.removeTrigger = function(triggerName, triggersDatabase) {
 
   self._dbAdmin.removeTrigger(triggerName, triggersDatabase, function(result) {
     if (result.inError) {
+      self._monitor.error(result.detail);
       deferred.reject(result.detail);
     } else {
       self._monitor.ok("    - SUCCESS - removed trigger " + triggerName);
@@ -382,6 +398,7 @@ backend.prototype.removeExtension = function(moduleName) {
 
   self._dbAdmin.removeExtension(moduleName, function(result) {
     if (result.inError) {
+      self._monitor.error(result.detail);
       deferred.reject(result.detail);
     } else {
       self._monitor.ok("    - SUCCESS - " + moduleName);
@@ -435,6 +452,7 @@ backend.prototype.installSearchOptions = function(name,file,doc) {
 
   self._dbAdmin.saveSearchOptions(name, doc, function(result) {
     if (result.inError) {
+      self._monitor.error(result.detail);
       deferred.reject(JSON.stringify(result) + " for " + file);
     } else {
       // all ok
@@ -454,6 +472,7 @@ backend.prototype.captureSearchOptions = function(pwd) {
   this._dbAdmin.searchOptions(function(result) {
     if (result.inError) {
       //crapout(result.detail);
+        self._monitor.error(result.detail);
       deferred.reject("Could not retrieve search options. Source: " +
         result.details.errorResponse.message);
     } else {
@@ -484,6 +503,7 @@ backend.prototype._captureSearchOptionsFile = function(pwd,name, uri) {
       format: "xml"
     }, function(result) {
       if (result.inError) {
+        self._monitor.error(result.detail);
         //crapout(result.detail);
         deferred.reject("Could not fetch search options configuration for '" + name + "' source: " +
           result.detail);
