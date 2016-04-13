@@ -4,6 +4,7 @@
 var mljsBackend = require("./backend-mljs.js");
 var pwd = process.env.PWD + "/";
 
+var mlnodetools = require("./mlnodetools.js");
 
 var parseArgs = require("minimist");
 var Q = require("q");
@@ -121,14 +122,15 @@ var monitor = {
   crapout: crapout, error: error,warn: warn,log: log,ok: ok,debug:debug,title:title
 }; // for passing to backend instance
 
-var deployer = new (require("./mlnodetools.js").deployer)(monitor);
+var deployer = new (mlnodetools.deployer)(monitor);
 deployer.setLogger(logger);
 
 var ranSetup = false;
 var ensureEnvironmentExists = function() {
   var defaultEnvironment = null;
   if (!ranSetup) {
-    deployer.loadEnvironment([pwd + "config/env.json",pwd + "config/env.js"]);
+    //console.log(pwd + "config/env.json");
+    deployer.loadEnvironment("default",[pwd + "config/env.json",pwd + "config/env.js"]);
     ranSetup = true;
   }
   defaultEnvironment = deployer.getEnvironment();
@@ -205,6 +207,7 @@ var targets = {
    * Base install command, calls all other commands in order
    **/
   install: function(params) {
+    title(" - install()");
     ensureEnvironmentExists();
     //targets.install_restapi().then(targets.install_modulesrestapi()).then(targets.install_extensions());
     var funcs = [targets.install_restapi, function() {
@@ -217,7 +220,9 @@ var targets = {
       function() {
         return Q.delay(5000);
       },
-      targets.update, targets.load_initial
+      targets.update, targets.load_initial, function() {
+        title(" - install() complete");
+      }
     ]; // NB triggers done immediately after extensions incase any triggers need to run on loaded initial content
     funcs.reduce(Q.when, Q(params));
   },
@@ -228,17 +233,37 @@ var targets = {
   /**
    * Create REST API instance. Optionally create database if it doesn't exist
    **/
-  install_restapi: function() {
+  install_restapi: function(params) {
     title(" - install_restapi()");
 
-    return deployer.createContentDBRestAPI();
+
+    var deferred = Q.defer();
+    //console.log("after deferred create. deployer: " + deployer);
+    deployer.installContentDBRestAPI().then(function(result) {
+      title(" - install_restapi() complete");
+      //console.log("got install result");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      //console.log("got install error");
+      deferred.reject(error);
+    });
+    //console.log("after installContentDBRestAPI");
+    return deferred.promise;
   },
 
   // WORKS 8.0.12
-  install_modulesrestapi: function() {
+  install_modulesrestapi: function(params) {
     title(" - install_modulesrestapi()");
+    var deferred = Q.defer();
 
-    return deployer.createModulesDBRestAPI();
+    deployer.installModulesDBRestAPI().then(function(result) {
+      title(" - install_modulesrestapi() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      error(error);
+      deferred.reject(error);
+    });
+    return deferred.promise;
   },
 
   // WORKS 8.0.12
@@ -249,14 +274,30 @@ var targets = {
       folder = params.m;
     }
 
-    return deployer.installModules(folder);
+    var deferred = Q.defer();
+    deployer.installModules(folder).then(function(result) {
+      title(" - install_modules() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      error(error);
+      deferred.reject(error);
+    });
+    return deferred.promise;
   },
 
   // WORKS 8.0.12
-  install_extensions: function() {
+  install_extensions: function(params) {
     title(" - install_extensions()");
     //log("user: " + env.username);
-    return deployer.installExtensions(pwd);
+    var deferred = Q.defer();
+    deployer.installExtensions(pwd).then(function(result) {
+      title(" - install_extensions() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      error(error);
+      deferred.reject(error);
+    });
+    return deferred.promise;
   },
 
   // WORKS 8.0.12
@@ -269,9 +310,9 @@ var targets = {
           "Could not install all triggers. Fix problem then try mljsadmin --install=triggers again (source: " +
           error + ")");
       }).finally(function(output) {
+        title(" - install_triggers() complete");
         deferred.resolve(params);
       });
-    });
     return deferred.promise;
   },
 
@@ -285,9 +326,11 @@ var targets = {
     //targets.update_ontology()
     //  .then(targets.update_workplace()).then(targets.update_searchoptions());
     var funcs = [targets.update_dbconfig, targets.update_modulesdbconfig,
-      targets.update_workplace, targets.update_searchoptions, targets.update_ontology
+      targets.update_workplace, targets.update_searchoptions, targets.update_ontology, function() {
+        title(" - update() complete");
+      }
     ];
-    return funcs.reduce(Q.when, params);
+    return funcs.reduce(Q.when, Q(params));
   },
 
 
@@ -295,7 +338,7 @@ var targets = {
   /**
    * Install REST API extensions, if they exist (rest-api/ext/*)
    **/
-  update_restapi: function() {
+  update_restapi: function(params) {
     title(" - update_restapi()");
     log("   - Not yet implemented");
   },
@@ -316,8 +359,9 @@ var targets = {
     }
     var deferred = Q.defer();
     deployer.updateOntology(pwd,graphname).then(function() {
+      title(" - update_ontology() complete");
       ok("    - SUCCESS installing ontology to graph: " + graphname);
-      deferred.resolve("SUCCESS");
+      deferred.resolve(params);
     }).catch(function(error) {
       crapout(error);
     });
@@ -336,6 +380,7 @@ var targets = {
     }
     var deferred = Q.defer();
     deployer.installWorkplace(pwd,file).then(function(result) {
+      title(" - update_workplace() complete");
       deferred.resolve(params);
     }).catch(function(error) {
       crapout(error);
@@ -352,6 +397,7 @@ var targets = {
 
     title(" - update_dbconfig()");
     deployer.updateContentDBConfig(pwd).then(function(result) {
+      title(" - update_dbconfig() complete");
       deferred.resolve(params);
     }).catch(function(error) {
       deferred.reject(error);
@@ -365,9 +411,11 @@ var targets = {
     var deferred = Q.defer();
 
     title(" - update_modulesdbconfig()");
-    backend.applyDatabasePackage(env.modulesdatabase, pwd,"modulesdbconfig").then(function(result) {
+    deployer.updateModulesDBConfig(pwd).then(function(result) {
+      title(" - update_modulesdbconfig() complete");
       deferred.resolve(params);
     }).catch(function(error) {
+      error(error);
       deferred.reject(error);
     });
 
@@ -379,12 +427,12 @@ var targets = {
   /**
    * Install REST API extensions, if they exist (rest-api/ext/*)
    **/
-  update_searchoptions: function() {
+  update_searchoptions: function(params) {
     title(" - update_searchoptions()");
     var deferred = Q.defer();
     deployer.updateSearchOptions(pwd).then(function(output) {
         title(" - update_searchoptions() complete");
-        deferred.resolve("All search options installed");
+        deferred.resolve(params);
     }).catch(function(error) {
       deferred.reject(error);
     });
@@ -399,11 +447,14 @@ var targets = {
 
   // WORKS 8.0.12
   capture: function(params) {
+    title(" - capture()");
     ensureEnvironmentExists();
-    targets.capture_workplace(params); //.then(targets.capture_ontology());
+    //targets.capture_workplace(params); //.then(targets.capture_ontology());
     var funcs = [/*targets.capture_confirm, */ targets.capture_dbconfig, targets.capture_modulesdbconfig,
       targets.capture_workplace, targets.capture_ontology,
-      targets.capture_searchoptions, targets.capture_triggers
+      targets.capture_searchoptions, targets.capture_triggers, function(result) {
+        title(" - capture() complete");
+      }
     ];
     return funcs.reduce(Q.when, Q(params)); // TODO pass in params
   },
@@ -430,9 +481,9 @@ var targets = {
       override = params.w;
     }
     title(" - capture_workplace()");
-    log("   - saving workplace configuration to file: " + file);
 
     deployer.captureWorkplace(pwd,override).then(function(result) {
+      title(" - capture_workplace() complete");
       deferred.resolve(params);
     }).catch(function(error) {
       crapout(error);
@@ -456,13 +507,14 @@ var targets = {
       graphname = params.g;
     }
     var deferred = Q.defer();
-    deployer.captureGraph(graphname,pwd,override).then(function(result) {
+    deployer.captureOntology(graphname,pwd,override).then(function(result) {
       title(" - capture_ontology() complete");
-      deferred.resolve(params);
     }).catch(function(error) {
       //crapout(error);
       warn(" - capture_ontology() errored - perhaps ontology graph name (" + graphname + ") does not exist?");
       warn(error);
+    }).finally(function(result) {
+      deferred.resolve(params);
     });
 
     return deferred.promise;
@@ -475,7 +527,6 @@ var targets = {
     var deferred = Q.defer();
 
     deployer.captureTriggers(pwd).then(function(result) {
-      ok("    - SUCCESS capturing installed triggers to file: " + file);
       title(" - capture_triggers() complete");
       deferred.resolve(params);
     }).catch(function(error) {
@@ -543,22 +594,33 @@ var targets = {
   // WORKS 8.0.12
   remove: function(params) {
     ensureEnvironmentExists();
+    title(" - remove()");
     //targets.remove_extensions().then(targets.remove_restapi()).then(targets.remove_modulesrestapi());
     var funcs = [targets.remove_triggers, targets.remove_extensions, targets.remove_restapi, function() {
       return Q.delay(10000);
-    }, targets.remove_modulesrestapi];
-    funcs.reduce(Q.when, Q(params));
+    }, targets.remove_modulesrestapi,function() {
+      title(" - remove() complete");
+    }];
+    return funcs.reduce(Q.when, Q(params));
   },
 
   // WORKS 8.0.12
-  remove_restapi: function() {
+  remove_restapi: function(params) {
     title(" - remove_restapi()");
+    var deferred = Q.defer();
 
-    return deployer.removeContentDBRestAPI();
+    deployer.removeContentDBRestAPI().then(function(result) {
+      title(" - remove_restapi() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      error(error);
+      deferred.reject(error);
+    });
+    return deferred.promise;
   },
 
   // WORKS 8.0.12
-  remove_modulesrestapi: function() {
+  remove_modulesrestapi: function(params) {
     title(" - remove_modulesrestapi()");
     /*
     var modulesenv = {};
@@ -581,7 +643,17 @@ var targets = {
       }
     });
     return deferred.promise;*/
-    return deployer.removeModulesDBRestAPI();
+
+    var deferred = Q.defer();
+    deployer.removeModulesDBRestAPI().then(function(result) {
+      title(" - remove_modulesrestapi() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      error(error);
+      crapout(error);
+//      deferred.reject(error);
+    });
+    return deferred.promise;
   },
 
   // WORKS 8.0.12
@@ -595,15 +667,23 @@ var targets = {
     }).catch(function(error) {
       crapout(error);
     });
-    
+
     return deferred.promise;
   },
 
   // WORKS 8.0.12
-  remove_extensions: function() {
+  remove_extensions: function(params) {
     title(" - remove_extensions()");
+    var deferred = Q.defer();
 
-    return deployer.removeExtensions(pwd);
+    deployer.removeExtensions(pwd).then(function(result) {
+      title(" - remove_extensions() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      error(error);
+      deferred.reject(error);
+    });
+    return deferred.promise;
   },
 
 
@@ -611,24 +691,41 @@ var targets = {
   // WORKS 8.0.12
   load: function(params) {
     ensureEnvironmentExists();
-    targets.load_initial(params);
+    return targets.load_initial(params);
   },
 
   // WORKS 8.0.12
-  load_initial: function() {
+  load_initial: function(params) {
     // check for ./data/.initial.json to see what folder to load
     // process as for load
     title(" - load_initial()");
-    return deployer.loadContentFolder(pwd + "data", ".initial.json");
+
+    var deferred = Q.defer();
+    deployer.loadContentFolder(pwd + "data", ".initial.json").then(function(result) {
+      title(" - load_initial() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      error(error);
+      deferred.reject(error);
+    });
+    return deferred.promise;
   },
 
   // WORKS 8.0.12
-  load_folder: function(args) {
+  load_folder: function(params) {
     // check to see if we have a parameter folder or not
     title(" - load_folder()");
     // TODO handle trailing slash in folder name of args.f
     // TODO windows file / and \ testing
-    return deployer.loadContentFolder(args.f, ".load.json");
+    var deferred = Q.defer();
+    deployer.loadContentFolder(params.f, ".load.json").then(function(result) {
+      title(" - load_folder() complete");
+      deferred.resolve(params);
+    }).catch(function(error) {
+      error(error);
+      deferred.reject(error);
+    });
+    return deferred.promise;
   },
 
 
@@ -707,6 +804,7 @@ var targets = {
     }
 
     deployer.clean(colsExclude,colsInclude).then(function(result) {
+      title(" - clean() complete");
       deferred.resolve(params);
     }).catch(function(error) {
       deferred.reject(error);
@@ -717,9 +815,14 @@ var targets = {
 
   // WORKS 8.0.12
   reset: function(params) {
+    title(" - reset()");
     ensureEnvironmentExists();
-    var funcs = [targets.clean, targets.update_ontology, targets.update_workplace, targets.load_initial];
-    funcs.reduce(Q.when, Q(params));
+    var funcs = [targets.clean, targets.update_ontology, targets.update_workplace, targets.load_initial,
+      function(result) {
+        title(" - reset() complete");
+      }
+    ];
+    return funcs.reduce(Q.when, Q(params));
   },
 
   help: function(params) {
@@ -735,6 +838,7 @@ var targets = {
 
 // DO THE THANG
 
+try {
 
 
 var argv = parseArgs(process.argv.slice(2));
@@ -838,4 +942,9 @@ if (argv._.length == 1) { // just one non option parameter, and no --option= par
   // fail
   //  usage("Only one instruction (E.g. 'install') OR one option (E.g. '--install=something') can be used");
   //}
+}
+
+} catch (e) {
+  error("An uncaught exception occurred: " + e);
+  crapout(e);
 }

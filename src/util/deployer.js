@@ -6,6 +6,9 @@ var fs = require('fs');
 var Q = require("q");
 var itob = require('istextorbinary');
 
+var environment = require("./environment.js");
+var mljsBackend = require("./backend-mljs.js");
+
 var deployer = function(monitor) {
   this._environment = null;
 
@@ -44,6 +47,8 @@ deployer.prototype._setupEnvironment = function() {
   // standard mljsadmin parsing of a single environment, creation of env, menv, lenv, and then backend
   this._setupBackend();
 
+  var self = this;
+
   var ranSetup = false;
   var setupEnvironment = function() {
     if (ranSetup) {
@@ -52,47 +57,49 @@ deployer.prototype._setupEnvironment = function() {
   ranSetup = true;
 
   // TODO get rid of this hack - may break tear down, and should be ignored if env.appname already exists
-  this._env = this._environment.get();
-  this._env.appname = this._env.database + "-rest-" + this._env.port; // fix for naming of rest api instance
+  self._env = self._environment.get();
+  self._env.appname = self._env.database + "-rest-" + self._env.port; // fix for naming of rest api instance
 
-  this._backend.setAdminDBSettings(this._env);
+  self._backend.setAdminDBSettings(self._env);
 
   var loaddb = null;
-  this._lenv = {};
-  for (var name in this._env) {
-    this._lenv[name] = "" + this._env[name];
+  self._lenv = {};
+  for (var name in self._env) {
+    self._lenv[name] = "" + self._env[name];
   }
   //log("dboptions username before lenv: " + db.dboptions.username);
   // Allow special username for loading content vs. administration
-  if (undefined != this._env.loadusername) {
+  if (undefined != self._env.loadusername) {
     //loaddb = new mljs();
-    this._lenv.username = this._env.loadusername;
-    this._lenv.password = this._env.loadpassword;
+    self._lenv.username = self._env.loadusername;
+    self._lenv.password = self._env.loadpassword;
   } else {
     //loaddb = db;
   }
-  this._backend.setContentDBSettings(this._lenv);
+  self._backend.setContentDBSettings(self._lenv);
   //log("dboptions username after lenv: " + db.dboptions.username);
   //log("load dboptions username after lenv: " + loaddb.dboptions.username);
 
   //var mdb = new mljs();
   //mdb.setLogger(logger);
-  this._menv = {};
-  for (var name in this._env) {
-    this._menv[name] = "" + env[this._env];
+  self._menv = {};
+  for (var name in self._env) {
+    self._menv[name] = "" + self._env[name];
   }
-  this._menv.port = this._menv.modulesport;
-  this._menv.database = this._menv.modulesdatabase;
-  this._menv.appname = this._menv.database + "-rest-" + this._menv.port;
+  self._menv.port = self._menv.modulesport;
+  self._menv.database = self._menv.modulesdatabase;
+  self._menv.appname = self._menv.database + "-rest-" + self._menv.port;
 
-  this._backend.setModulesDBSettings(this._menv);
+  self._backend.setModulesDBSettings(self._menv);
 
   //mdb.configure(menv);
-  debug("CONTENTENV: " + JSON.stringify(this._env));
-  debug("MODULESENV: " + JSON.stringify(this._menv));
-  debug("LOADENV: " + JSON.stringify(this._lenv));
+  self._monitor.debug("CONTENTENV: " + JSON.stringify(self._env));
+  self._monitor.debug("MODULESENV: " + JSON.stringify(self._menv));
+  self._monitor.debug("LOADENV: " + JSON.stringify(self._lenv));
 
   };
+
+  setupEnvironment();
 
   this._hasEnvironment = this._backend.hasDriver();
 };
@@ -141,21 +148,20 @@ deployer.prototype.setEnvironment = function(adminEnvJson,modulesEnvJson,loadEnv
 
 
 // PUBLIC FUNCTIONS
-deployer.prototype.install = function() {
 
+deployer.prototype.installContentDBRestAPI = function() {
+  //console.log("installContentDBRestAPI. backend: " + this._backend);
+  return this._backend.createContentDBRestAPI();
 };
 
-deployer.prototype.installRestAPI = function() {
-
-};
-
-deployer.prototype.installModulesRestAPI = function() {
-
+deployer.prototype.installModulesDBRestAPI = function() {
+  return this._backend.createModulesDBRestAPI();
 };
 
 deployer.prototype.installExtensions = function(pwd) {
 
   var deferred = Q.defer();
+  var self = this;
   //log("db user: " + db.dboptions.username);
   // install rest extensions in REST server
   // read data/restapi.json file for list of extensions
@@ -164,11 +170,14 @@ deployer.prototype.installExtensions = function(pwd) {
     var deferred2 = Q.defer();
     fs.readFile(pwd + './rest-api/ext/' + ext.name + ".xqy", 'utf8', function(err, content) {
       if (err) {
-        crapout(err);
+        self._monitor.error("Error in installExtensions.readFile: " + err);
+        deferred.reject(err);
       }
-      backend.installExtension(ext.name, ext.methods, content).then(function(output) {
+      self._backend.installExtension(ext.name, ext.methods, content).then(function(output) {
+        //self._monitor.log("Install extension completed for: " + ext.name);
         deferred2.resolve(ext.name);
       }).catch(function(err) {
+        self._monitor.error("Error in installExtensions.readFile: " + err);
         deferred2.reject(err);
       });
     });
@@ -176,39 +185,35 @@ deployer.prototype.installExtensions = function(pwd) {
   };
   fs.readFile(pwd + './data/restapi.json', 'utf8', function(err, data) {
     if (err) {
-      crapout(err);
+      self._monotor.error(err);
+      deferred.reject(err);
     }
     var json = JSON.parse(data);
     var exts = json.extensions;
     var promises = [];
     for (var e = 0, maxe = exts.length, ext; e < maxe; e++) {
       ext = exts[e];
-      log("    - Attempting to install MarkLogic REST API extension '" + ext.name + "'");
+      self._monitor.log("    - Attempting to install MarkLogic REST API extension '" + ext.name + "'");
       // process each extension and install
       // TODO check for xqy vs js implementation (V8 only)
       promises[e] = readFile(ext);
     }
-    Q.all(promises).catch(function(error) {
-      warn(
+    Q.all(promises).then(function(result) {
+      //self._monitor.ok("  - install_extensions() complete");
+    }).catch(function(error) {
+      self._monitor.warn(
         "Could not install all extensions. Fix problem then try mljsadmin --install=extensions again (source: " +
         error + ")");
     }).finally(function(output) {
-      info("  - install_extensions() complete");
-      deferred.resolve("SUCCESS - completed rest extension installation");
+      deferred.resolve("SUCCESS - completed rest extensions installation");
     });
   });
   return deferred.promise;
 };
 
 deployer.prototype.installModules = function(folder) {
-
-
   // loop through folder recursively and save modules to mdb
-
-  //var mdb = new mljs();
-  //mdb.setLogger(logger);
-  //mdb.configure(menv);
-
+/*
   var settings = {
     folder: folder,
     recursive: true,
@@ -216,18 +221,20 @@ deployer.prototype.installModules = function(folder) {
     prefix: "/",
     stripBaseFolder: true,
     collections: []
-  };
-  log("calling load folder: " + JSON.stringify(settings));
-  return deployer.loadModulesFolder(folder,settings);
+  };*/
+  this._monitor.log("calling load folder: " + folder /*+ ", settings: " + JSON.stringify(settings)*/ );
+  return this.loadModulesFolder(folder);
   //return targets._loadFolder2(backend.saveModules, folder, settings);
 };
 
 deployer.prototype.installTriggers = function(pwd) {
   var deferred = Q.defer();
+  var self = this;
   // read data/restapi.json file for list of extensions
   fs.readFile(pwd + './data/restapi.json', 'utf8', function(err, data) {
     if (err) {
-      crapout(err);
+      self._monitor.error(err);
+      deferred.reject(err);
     }
     var json = JSON.parse(data);
     var triggers = json.triggers;
@@ -238,9 +245,9 @@ deployer.prototype.installTriggers = function(pwd) {
         // process each trigger and install
 
         // MUST OVERWRITE DB NAME!
-        trg.module.database = env.modulesdatabase;
+        trg.module.database = self._env.modulesdatabase;
 
-        promises[e] = backend.installTrigger(trg);
+        promises[e] = self._backend.installTrigger(trg);
       }
     }
     Q.all(promises).catch(function(error) {
@@ -258,7 +265,7 @@ deployer.prototype.installWorkplace = function(rootFolder,fileOverride) {
   var self = this;
   var file = fileOverride || (rootFolder + 'data/mljs-workplace.xml');
 
-  log("    - Installing workplace xml file: " + file);
+  this._monitor.log("    - Installing workplace xml file: " + file);
   //log("   - Not yet implemented");
   fs.readFile(file, 'utf8', function(err, data) {
     if (err) {
@@ -286,7 +293,8 @@ deployer.prototype.removeExtensions = function(pwd) {
   };
   fs.readFile(pwd + './data/restapi.json', 'utf8', function(err, data) {
     if (err) {
-      crapout(err);
+      self._monitor.error(err);
+      deferred.reject(err);
     }
     var json = JSON.parse(data);
     var exts = json.extensions;
@@ -348,20 +356,20 @@ deployer.prototype.removeTriggers = function(pwd,fileOverride) {
 };
 
 deployer.prototype.updateOntology = function(pwd,graphname) {
-
+  var self = this;
   var deferred = Q.defer();
   var file = pwd + 'data/ontology.ttl';
-  log("    - loading ontology from file: " + file);
+  this._monitor.log("    - loading ontology from file: " + file);
   //log("   - Not yet implemented");
   // TODO check if OPTIONAL ontology exists
   fs.readFile(file, 'utf8', function(err, data) {
     if (err) {
       // doesn't exist
-      warn("SKIPPING as Ontology file does not exist: " + file);
-      deferred.resolve(params);
+      self._monitor.warn("SKIPPING as Ontology file does not exist: " + file);
+      deferred.resolve("SUCCESS");
       //crapout(err);
     } else {
-      backend.saveGraph(data,graphName).then(function() {
+      self._backend.saveGraph(data,graphName).then(function() {
         ok("    - SUCCESS installing ontology to graph: " + graphname);
         deferred.resolve("SUCCESS");
       }).catch(function(error) {
@@ -373,7 +381,13 @@ deployer.prototype.updateOntology = function(pwd,graphname) {
 };
 
 deployer.prototype.updateContentDBConfig = function(pwd) {
+  // TODO allow file override
   return this._backend.applyDatabasePackage(this._env.database, pwd,"contentdbconfig");
+};
+
+deployer.prototype.updateModulesDBConfig = function(pwd) {
+  // TODO allow file override
+  return this._backend.applyDatabasePackage(this._env.modulesdatabase, pwd,"modulesdbconfig");
 };
 
 deployer.prototype.updateSearchOptions = function(pwd) {
@@ -384,7 +398,7 @@ deployer.prototype.updateSearchOptions = function(pwd) {
     if (err) {
       deferred.reject(err);
     }
-    log("    - Found options: " + files);
+    self._monitor.log("    - Found options: " + files);
     var saveWP = function(file) {
       var deferred2 = Q.defer();
 
@@ -431,13 +445,15 @@ deployer.prototype.updateSearchOptions = function(pwd) {
 
 deployer.prototype.captureWorkplace = function(pwd,fileOverride) {
   var self = this;
+  var deferred = Q.defer();
 
   var file = fileOverride || (pwd + 'data/mljs-workplace.xml');
+  //console.log("file: " + file);
 
-  backend.captureWorkplace(file).then(function(result) {
-    deferred.resolve(params);
+  this._backend.captureWorkplace(file).then(function(result) {
+    deferred.resolve("SUCCESS");
   }).catch(function(error) {
-    crapout(error);
+    deferred.reject(error);
   });
 
   return deferred.promise;
@@ -446,7 +462,8 @@ deployer.prototype.captureWorkplace = function(pwd,fileOverride) {
 deployer.prototype.captureOntology = function(graphname,pwd,override) {
   var deferred = Q.defer();
   var file = override || (pwd + 'data/ontology.ttl');
-  log("   - Storing ontology in file: " + file + " from ontology graph: " + graphname);
+  var self = this;
+  this._monitor.log("   - Storing ontology in file: " + file + " from ontology graph: " + graphname);
 
   this._backend.captureGraph(graphname,{},file).then(function(result) {
     self._monitor.ok("    - SUCCESS capturing ontology to file: " + file);
@@ -466,7 +483,7 @@ deployer.prototype.captureTriggers = function(pwd,fileOverride) {
       var deferred = Q.defer();
       // read existing restapi.json file
       var file = fileOverride || (pwd + 'data/restapi.json');
-      log("    - Reading existing Workplace rest api config: " + file);
+      self._monitor.log("    - Reading existing Workplace rest api config: " + file);
 
       var restapi = {}; // defaults
 
@@ -480,6 +497,7 @@ deployer.prototype.captureTriggers = function(pwd,fileOverride) {
         }
 
         self._backend.captureTriggers(file,restapi).then(function(result) {
+          self._monitor.ok("    - SUCCESS capturing installed triggers to file: " + file);
           deferred.resolve("SUCCESS");
         }).catch (function(error) {
           deferred.reject(error);
@@ -491,7 +509,7 @@ deployer.prototype.captureTriggers = function(pwd,fileOverride) {
 deployer.prototype.captureSearchOptions = function(pwd,fileOverride) {
   // TODO support fileOverride and refactor backend accordingly
     var deferred = Q.defer();
-    backend.captureSearchOptions(pwd).then(function(result) {
+    this._backend.captureSearchOptions(pwd).then(function(result) {
       deferred.resolve("SUCCESS");
     }).catch(function(error) {
       deferred.reject(error);
@@ -516,7 +534,7 @@ deployer.prototype.captureModulesDBConfig = function(pwd,fileOverride) {
   // TODO support fileOverride and refactor backend accordingly
 
     var deferred = Q.defer();
-    self._backend.captureDatabase(env.modulesdatabase, pwd,"modulesdbconfig").then(function(result) {
+    self._backend.captureDatabase(self._env.modulesdatabase, pwd,"modulesdbconfig").then(function(result) {
       deferred.resolve("SUCCESS");
     }).catch(function(error) {
       deferred.reject(error);
@@ -530,23 +548,24 @@ deployer.prototype.clean = function(colsExclude,colsInclude) {
   return this._backend.clean(colsExclude,colsInclude);
 };
 
-deployer.prototype.loadContentFolder = function() {
-  return this._loadFolder2(backend.saveContent, pwd + "data", ".initial.json");
+deployer.prototype.loadContentFolder = function(folder) {
+  return this._loadFolder2(this._backend.saveContent, folder, ".initial.json");
 };
 
 deployer.prototype.loadModulesFolder = function(folder,settings) {
-  return this._loadFolder2(this._backend.saveModules, folder, settings);
+  return this._loadFolder2(this._backend.saveModules, folder, ".load.json");
 };
 
 
   // WORKS 8.0.12
 deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_opt,inheritedSettings) {
     var deferred = Q.defer();
+    var self = this;
     var saveFile = function(settings,file) {
       var deferred2 = Q.defer();
       //log("      - Found: " + settings.folder + "/" + file);
       if (settings.ignore.contains(file)) {
-        log("      - Not uploading: " + settings.folder + "/" + file +
+        self._monitor.log("      - Not uploading: " + settings.folder + "/" + file +
           " (File in ignore array in settings file)");
         deferred2.resolve(settings.folder + "/" + file);
       } else {
@@ -556,7 +575,7 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
 
           if (err) {
             //crapout(err);
-            warn("Problem reading file prior to save: " + settings.folder + "/" +
+            self._monitor.warn("Problem reading file prior to save: " + settings.folder + "/" +
               file + " (source: " + err + ")");
             deferred2.resolve(settings.folder + "/" + file);
           } else {
@@ -633,10 +652,13 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
               //log("Doc props: " + JSON.stringify(props));
               //log(uri);
               // Using .call() syntax to ensure correct member variables
-              dbSaveFunc.call(backend,data,uri,props,settings,file).then(function() {
-                deferred2.resolve(settings.folder + "/" + file);
+              dbSaveFunc.call(self._backend,data,uri,props,settings,file).then(function() {
+                //self._monitor.log("Saved file to URI: " + uri);
               }).catch(function(error) {
-                warn(JSON.stringify(error));
+                self._monitor.warn(JSON.stringify(error));
+              }).finally(function(result) {
+                //self._monitor.log("finally");
+                deferred2.resolve(settings.folder + "/" + file);
               });
 
             }); // end itob
@@ -648,7 +670,7 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
     }; // end saveFile
 
     var uploadFile = function(ctx) {
-      log("   - uploading file array portion: start: " + ctx.start + " to end: " + ctx.end + " of max: " + ctx.arr.length);
+      self._monitor.log("   - uploading file array portion: start: " + ctx.start + " to end: " + ctx.end + " of max: " + ctx.arr.length);
       var deferred4 = Q.defer();
 
       var fileInfoArray = ctx.arr;
@@ -663,10 +685,13 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
       }
       var end = ctx.start + ctx.size + ctx.size - 1;
       if (end > ctx.arr.length) {
-        end = cts.arr.length - 1;
+        end = ctx.arr.length - 1;
       }
       Q.all(ufpromises).then(function() {
         deferred4.resolve({arr: ctx.arr,start: ctx.start + ctx.size,end: end, size: ctx.size});
+      }).catch(function(error) {
+        self._monitor.error("Error occurred in uploadFile: " + error);
+        deferred4.reject(error);
       });
 
       return deferred4.promise;
@@ -686,10 +711,10 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
           fs.readFile(filename, 'utf8', function(err, data) {
             if (err) {
               //crapout(err);
-              log("    - settings file doesn't exist: " + filename);
+              self._monitor.log("    - settings file doesn't exist: " + filename);
               // doesn't exist - ignore and carry on
             } else {
-              log("    - settings file found: " + filename);
+              self._monitor.log("    - settings file found: " + filename);
             }
             var json = {};
             if (undefined != data) {
@@ -705,14 +730,15 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
               }
             }
             //log("JSON settings: " + JSON.stringify(json));
-            log("      - Folder now: " + settings.folder);
+            self._monitor.log("      - Folder now: " + settings.folder);
 
 
       // load DIRs
       fs.readdir(settings.folder, function(err, files) {
         //log("Reading folder: " + settings.folder);
         if (err) {
-          crapout(err);
+          self._monitor.error(err);
+          deferred.reject(err);
         }
 
         var dofile = function(file) {
@@ -722,7 +748,8 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
           fs.lstat(settings.folder + '/' + file, function(err, stats) {
             //log("Got stat for: " + settings.folder + "/" + file);
             if (err) {
-              crapout(settings.folder + "/" + file + " : " + err);
+              self._monitor.error(err);
+              deferred.reject(settings.folder + "/" + file + " : " + err);
             }
             if (stats.isDirectory()) {
               //get_folder(path+'/'+file,tree[idx].children);
@@ -765,8 +792,11 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
         }
         //log("Total folder promises: " + folderPromises.length);
         Q.all(folderPromises).then(function() {
-          console.log(" - Finished processing folder: " + settings.folder);
+          //console.log(" - Finished processing folder: " + settings.folder);
           deferred2.resolve();
+        }).catch(function(error) {
+          self._monitor.error("error during folder processing: " + error);
+          deferred2.reject(error);
         });
 
       }); // after fs.readdir
@@ -802,14 +832,14 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
 
     // pass these file names and details to the consumer
     processFolder(settings).then(function() {
-      log("Finished processing all folders");
+      self._monitor.log("Finished processing all folders");
       var deferred3 = Q.defer();
 
       // actually upload each file in groups of 10 (or -thread_count)
       var promises = [];
 
       var threads = 20;
-      log("fileInfoArray length: " + fileInfoArray.length);
+      self._monitor.log("fileInfoArray length: " + fileInfoArray.length);
       var batches = Math.ceil(fileInfoArray.length / threads);
       for (var split = 0;split < batches;split++) {
         var startIdx = split * threads;
@@ -820,22 +850,28 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
         promises[split] = uploadFile;
       }
       promises[split] = uploadFile; // hack
-      log("Number of file upload splits: " + promises.length);
-      log("Number of file batches: " + batches);
+      self._monitor.log("Number of file upload splits: " + promises.length);
+      self._monitor.log("Number of file batches: " + batches);
       //Q.all(promises).then(deferred3.resolve("SUCCESS"));
       var end = threads - 1;
       if (end > fileInfoArray.length) {
         end = fileInfoArray.length - 1;
       }
       promises.reduce(Q.when,Q({arr: fileInfoArray,start: 0,end: end,size: threads})).then(function() {
-        log("Finished processing all uploaded files");
+        self._monitor.log("Finished processing all uploaded files");
         deferred3.resolve("SUCCESS");
+      }).catch(function(error) {
+        self._monitor.error("Error during process Folder reduce: " + error);
+        deferred3.reject(error);
       });
 
 
       return deferred3.promise;
     }).then(function(output){
       deferred.resolve("SUCCESS");
+    }).catch(function(error) {
+      self._monitor.error("Error in process Folder wider catch: " + error);
+      deferred.reject(error);
     });
 
     return deferred.promise;

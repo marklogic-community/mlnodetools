@@ -19,8 +19,10 @@ environment.prototype.load = function(envFiles) {
   var jsonText = null;
   for (var i = 0;i < envFiles.length && null == jsonText;i++) {
     try {
+      //console.log(envFiles[i]);
       this._error = null; // reset for each attempted file load
       jsonText = fs.readFileSync(envFiles[i], "UTF-8");
+      //console.log(jsonText);
     } catch (e) {
       // ignore
       this._error = e;
