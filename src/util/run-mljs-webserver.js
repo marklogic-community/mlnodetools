@@ -2,7 +2,7 @@
 var servers = require("./mljs-webserver");
 var fs = require('fs');
 var pwd = process.env.PWD + "/";
-var env = JSON.parse(fs.readFileSync(pwd + "config/env.js","UTF-8"));
+var env = JSON.parse(fs.readFileSync(pwd + "config/env.json","UTF-8"));
 //var env = require("../config/env.js");
 
 //process.argv.forEach(function(val) {console.log("Param " + val);});

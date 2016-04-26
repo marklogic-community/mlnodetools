@@ -8,6 +8,7 @@ This project provides the below tools:-
 - mljsserve - runs an Express based web app that also proxies /v1/ REST API URLs to a MarkLogic Server database app server (For use in DEV and DEMO situations ONLY - exposes the entire /v1/ set of REST endpoints to the web app user - so not for production use!)
 
 ## Recent changes
+2016-Apr-13 - V. 8.0.12 - Completed reliability fixes. Abstracted out commands so they could (theoretically) be re-used by Gulp and other tools. Help mode added, and thorough testing completed.
 2016-Apr-08 - V. 8.0.11 - More reliable folder loading with threading. Support for file permissions. Reliability improvements. Colour coding in terminal window. (No Windows support)
 
 ## Installing mlnodetools
@@ -33,14 +34,16 @@ Once generated, you simply:-
 
 ## Examples
 
-Below are a few examples
+Below are a few examples. For a full list of commands and their options please read [COMMANDS.md](COMMANDS.md).
+
+Commands are affected by [ENV.md](system) and [RESTAPI.md](application) settings. Read those for how to
+configure a full MarkLogic system and REST based application.
 
 ### Installing a new application
 
 If you've just downloaded an MLJS Workplace based application, execute these commands to fully install it:-
 
 - mljsadmin install
-- mljsadmin update
 
 If you see any WARN or ERROR lines, follow the advice that mljsadmin gives to resolve them, before continuing.
 
@@ -54,6 +57,11 @@ This is achieved by:-
 - mljsadmin capture
 
 Again, correct any WARN or ERROR messages, if required
+
+### Resetting an application
+
+During many demos we add content. A clean command is provided that removes the content, whereas a reset command is
+provided that removes the content then loads the 'initial' content as per ./data/.initial.json.
 
 ### Removing an application
 
