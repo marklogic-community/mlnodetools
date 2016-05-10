@@ -24,7 +24,7 @@ var backend = function(monitor) {
 };
 
 backend.prototype.hasDriver = function() {
-  return this._hasDriver;
+  return undefined != this._hasDriver;
 };
 
 backend.prototype.getDriverException = function() {
