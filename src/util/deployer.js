@@ -183,11 +183,13 @@ deployer.prototype.installExtensions = function(pwd) {
     });
     return deferred2.promise;
   };
-  fs.readFile(pwd + './data/restapi.json', 'utf8', function(err, data) {
+  fs.readFile(pwd + 'data/restapi.json', 'utf8', function(err, data) {
     if (err) {
-      self._monotor.error(err);
+      self._monitor.error(err);
       deferred.reject(err);
     }
+    self._monitor.log("Data:-");
+    self._monitor.log(data);
     var json = JSON.parse(data);
     var exts = json.extensions;
     var promises = [];
@@ -548,12 +550,12 @@ deployer.prototype.clean = function(colsExclude,colsInclude) {
   return this._backend.clean(colsExclude,colsInclude);
 };
 
-deployer.prototype.loadContentFolder = function(folder) {
-  return this._loadFolder2(this._backend.saveContent, folder, ".initial.json");
+deployer.prototype.loadContentFolder = function(folder,settings) {
+  return this._loadFolder2(this._backend.saveContent, folder, settings || ".initial.json");
 };
 
 deployer.prototype.loadModulesFolder = function(folder,settings) {
-  return this._loadFolder2(this._backend.saveModules, folder, ".load.json");
+  return this._loadFolder2(this._backend.saveModules, folder, settings || ".load.json");
 };
 
 
@@ -705,7 +707,7 @@ deployer.prototype._loadFolder2 = function(dbSaveFunc,folder,settingsFile,base_o
       var deferred2 = Q.defer();
 
       var filename = settings.folder + "/" + (settingsFile || ".load.json");
-
+      self._monitor.log("    - Attempting to read settings file: " + filename);
 
           // load extra override settings
           fs.readFile(filename, 'utf8', function(err, data) {
