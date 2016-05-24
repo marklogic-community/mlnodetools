@@ -183,11 +183,13 @@ deployer.prototype.installExtensions = function(pwd) {
     });
     return deferred2.promise;
   };
-  fs.readFile(pwd + './data/restapi.json', 'utf8', function(err, data) {
+  fs.readFile(pwd + 'data/restapi.json', 'utf8', function(err, data) {
     if (err) {
-      self._monotor.error(err);
+      self._monitor.error(err);
       deferred.reject(err);
     }
+    self._monitor.log("Data:-");
+    self._monitor.log(data);
     var json = JSON.parse(data);
     var exts = json.extensions;
     var promises = [];
