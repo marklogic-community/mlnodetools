@@ -57,10 +57,11 @@ deployer.prototype._setupEnvironment = function() {
   ranSetup = true;
 
   // TODO get rid of this hack - may break tear down, and should be ignored if env.appname already exists
-  self._env = self._environment.get();
-  self._env.appname = self._env.database + "-rest-" + self._env.port; // fix for naming of rest api instance
-
-  self._backend.setAdminDBSettings(self._env);
+  var tenv = self._environment.get();
+  self._env = {};
+  for (var name in tenv) {
+    self._env[name] = "" + tenv[name];
+  }
 
   var loaddb = null;
   self._lenv = {};
@@ -71,12 +72,11 @@ deployer.prototype._setupEnvironment = function() {
   // Allow special username for loading content vs. administration
   if (undefined != self._env.loadusername) {
     //loaddb = new mljs();
-    self._lenv.username = self._env.loadusername;
-    self._lenv.password = self._env.loadpassword;
+    self._lenv.username = "" + self._env.loadusername;
+    self._lenv.password = "" + self._env.loadpassword;
   } else {
     //loaddb = db;
   }
-  self._backend.setContentDBSettings(self._lenv);
   //log("dboptions username after lenv: " + db.dboptions.username);
   //log("load dboptions username after lenv: " + loaddb.dboptions.username);
 
@@ -86,11 +86,18 @@ deployer.prototype._setupEnvironment = function() {
   for (var name in self._env) {
     self._menv[name] = "" + self._env[name];
   }
-  self._menv.port = self._menv.modulesport;
-  self._menv.database = self._menv.modulesdatabase;
+  self._menv.port = "" + self._menv.modulesport;
+  self._menv.database = "" + self._menv.modulesdatabase;
   self._menv.appname = self._menv.database + "-rest-" + self._menv.port;
+self._monitor.debug("modules appname: " + self._menv.appname);
 
   self._backend.setModulesDBSettings(self._menv);
+  self._backend.setContentDBSettings(self._lenv);
+  self._env.appname = self._env.database + "-rest-" + self._env.port; // fix for naming of rest api instance
+self._monitor.debug("content/admin appname: " + self._env.appname);
+self._monitor.debug("modules appname now: " + self._menv.appname);
+
+  self._backend.setAdminDBSettings(self._env);
 
   //mdb.configure(menv);
   self._monitor.debug("CONTENTENV: " + JSON.stringify(self._env));
@@ -151,11 +158,11 @@ deployer.prototype.setEnvironment = function(adminEnvJson,modulesEnvJson,loadEnv
 
 deployer.prototype.installContentDBRestAPI = function() {
   //console.log("installContentDBRestAPI. backend: " + this._backend);
-  return this._backend.createContentDBRestAPI();
+  return this._backend.createContentDBRestAPI(this._env);
 };
 
 deployer.prototype.installModulesDBRestAPI = function() {
-  return this._backend.createModulesDBRestAPI();
+  return this._backend.createModulesDBRestAPI(this._menv);
 };
 
 deployer.prototype.installExtensions = function(pwd) {
@@ -371,8 +378,8 @@ deployer.prototype.updateOntology = function(pwd,graphname) {
       deferred.resolve("SUCCESS");
       //crapout(err);
     } else {
-      self._backend.saveGraph(data,graphName).then(function() {
-        ok("    - SUCCESS installing ontology to graph: " + graphname);
+      self._backend.installGraph(data,graphname).then(function() {
+        self._monitor.ok("    - SUCCESS installing ontology to graph: " + graphname);
         deferred.resolve("SUCCESS");
       }).catch(function(error) {
         deferred.reject(error);
