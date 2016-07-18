@@ -18,6 +18,8 @@ var backend = function(monitor) {
     self._driver = require('mljs');
     self._hasDriver = true;
   } catch (e) {
+    console.log("Recoverable Error trying to load MLJS...");
+    console.log(e);
     self._hasDriver = false;
     self._exception = e;
   }
@@ -45,20 +47,32 @@ backend.prototype.setLogger = function(logger) {
 
 
 backend.prototype.setAdminDBSettings = function(settings) {
-  this._dbAdmin = new this._driver();
+  this._dbAdmin = new (require("mljs"));//this._driver();
+  this._monitor.log("setAdminDBSettings...");
+  this._monitor.log(settings);
+this._adminSettings = settings;
   this._dbAdmin.configure(settings);
   this._dbAdmin.setLogger(this._logger);
-  this._dbContent = this._dbAdmin;
+  if (undefined == this._dbContent) {
+    this._dbContent = this._dbAdmin;
+  }
 };
 
 backend.prototype.setModulesDBSettings = function(settings) {
-  this._dbModules = new this._driver();
+  this._dbModules = new (require("mljs"));//this._driver();
+  //this._dbModules = new this._driver();
+  this._monitor.log("setModulesDBSettings...");
+  this._monitor.log(settings);
+this._modulesSettings = settings;
   this._dbModules.configure(settings);
   this._dbModules.setLogger(this._logger);
 };
 
 backend.prototype.setContentDBSettings = function(settings) {
   this._dbContent = new this._driver();
+  this._monitor.log("setContentDBSettings...");
+  this._monitor.log(settings);
+this._contentSettings = settings;
   this._dbContent.configure(settings);
   this._dbContent.setLogger(this._logger);
 };
@@ -73,6 +87,8 @@ backend.prototype.createContentDBRestAPI = function() {
     //console.log("dbAdmin undefined");
     throw new Exception("Admin connection has not been configured");
   }
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
   //console.log("after undefined check");
 
   var deferred = Q.defer();
@@ -81,8 +97,9 @@ backend.prototype.createContentDBRestAPI = function() {
   //console.log("calling create");
   this._dbAdmin.create(function(result) {
     //console.log("have create result: " + result);
+    self._monitor.log("dbAdmin(Content rest api).create output:-");
+    self._monitor.log(JSON.stringify(result));
     if (result.inError) {
-      self._monitor.log(JSON.stringify(result));
       //crapout(result.detail);
       deferred.reject(result.detail);
     } else {
@@ -99,11 +116,15 @@ backend.prototype.createModulesDBRestAPI = function() {
   if (undefined == this._dbAdmin) {
     throw new Exception("Admin connection has not been configured");
   }
+this._dbModules = new this._driver();
+this._dbModules.configure(this._modulesSettings);
 
   var deferred = Q.defer();
   var self = this;
   //log("    - config: " + JSON.stringify(modulesenv));
   this._dbModules.create(function(result) {
+    self._monitor.log("dbModules (modules rest api).create output:-");
+    self._monitor.log(JSON.stringify(result));
     if (result.inError) {
       //crapout(result.error);
       self._monitor.error(result.error);
@@ -121,6 +142,8 @@ backend.prototype.createModulesDBRestAPI = function() {
 backend.prototype.installExtension = function(moduleName, methodArray, content) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
     this._dbAdmin.installExtension(moduleName, methodArray, content, function(result) {
       if (result.inError) {
@@ -140,6 +163,8 @@ backend.prototype.installExtension = function(moduleName, methodArray, content) 
 backend.prototype.installTrigger = function(triggerInfo) {
     var deferred = Q.defer();
     var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
     self._dbAdmin.installTrigger(triggerInfo, function(result) {
       self._monitor.log("    - result: " + JSON.stringify(result));
@@ -158,6 +183,8 @@ backend.prototype.installTrigger = function(triggerInfo) {
 backend.prototype.captureTriggers = function(file,restapi) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   self._dbAdmin.triggers(function(result) {
     if (result.inError) {
@@ -183,9 +210,11 @@ backend.prototype.captureTriggers = function(file,restapi) {
   return deferred.promise;
 };
 
-backend.prototype.installGraph = function(data,graphName) {
+backend.prototype.installGraph = function(data,graphname) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   self._dbAdmin.saveGraph(data, graphname, {
     format: "turtle"
@@ -203,6 +232,8 @@ backend.prototype.installGraph = function(data,graphName) {
 backend.prototype.captureGraph = function(graphName,settings,file) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   self._dbAdmin.graph(graphName, settings, function(result) {
     if (result.inError) {
@@ -225,6 +256,8 @@ backend.prototype.captureGraph = function(graphName,settings,file) {
 backend.prototype.installWorkplace = function(data,file) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   self._dbAdmin.saveWorkplace(data, function(result) {
     if (result.inError) {
@@ -242,6 +275,8 @@ backend.prototype.installWorkplace = function(data,file) {
 backend.prototype.captureWorkplace = function(file) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   self._dbAdmin.workplace(function(result) {
     if (result.inError) {
@@ -267,6 +302,8 @@ backend.prototype.captureWorkplace = function(file) {
 backend.prototype.applyDatabasePackage = function(name, pwd,filename) {
     var deferred = Q.defer();
     var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
     // read file
     var file = pwd + "packages/databases/" + filename + ".xml"; // TODO check and skip
     self._monitor.log("    - reading package xml file: " + file);
@@ -319,6 +356,8 @@ backend.prototype.applyDatabasePackage = function(name, pwd,filename) {
 backend.prototype.captureDatabase = function(name, pwd,filename) {
     var deferred = Q.defer();
     var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
     // get content database XML package file
     this._dbAdmin.getDatabasePackage(name, function(result) {
@@ -343,6 +382,8 @@ backend.prototype.captureDatabase = function(name, pwd,filename) {
 backend.prototype.removeContentDBRestAPI = function() {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   //log("    - config: " + JSON.stringify(env));
   self._dbAdmin.destroy(function(result) {
@@ -379,6 +420,8 @@ backend.prototype.removeModulesDBRestAPI = function() {
 backend.prototype.removeTrigger = function(triggerName, triggersDatabase) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   self._dbAdmin.removeTrigger(triggerName, triggersDatabase, function(result) {
     if (result.inError) {
@@ -395,6 +438,8 @@ backend.prototype.removeTrigger = function(triggerName, triggersDatabase) {
 backend.prototype.removeExtension = function(moduleName) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   self._dbAdmin.removeExtension(moduleName, function(result) {
     if (result.inError) {
@@ -411,6 +456,8 @@ backend.prototype.removeExtension = function(moduleName) {
 backend.prototype.saveContent = function(data,uri,props,settings,file) {
   var self = this;
   var deferred = Q.defer();
+this._dbContent = new this._driver();
+this._dbContent.configure(this._contentSettings);
 
   this._dbContent.save(data, uri, props, function(result) {
     if (result.inError) {
@@ -430,6 +477,8 @@ backend.prototype.saveContent = function(data,uri,props,settings,file) {
 backend.prototype.saveModules = function(data,uri,props,settings,file) {
   var self = this;
   var deferred = Q.defer();
+this._dbModules = new this._driver();
+this._dbModules.configure(this._modulesSettings);
 
   this._dbModules.save(data, uri, props, function(result) {
     if (result.inError) {
@@ -449,6 +498,8 @@ backend.prototype.saveModules = function(data,uri,props,settings,file) {
 backend.prototype.installSearchOptions = function(name,file,doc) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   self._dbAdmin.saveSearchOptions(name, doc, function(result) {
     if (result.inError) {
@@ -467,6 +518,8 @@ backend.prototype.installSearchOptions = function(name,file,doc) {
 backend.prototype.captureSearchOptions = function(pwd) {
     var deferred = Q.defer();
     var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
 
   this._dbAdmin.searchOptions(function(result) {
@@ -498,6 +551,8 @@ backend.prototype.captureSearchOptions = function(pwd) {
 backend.prototype._captureSearchOptionsFile = function(pwd,name, uri) {
     var deferred = Q.defer();
     var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
     self._dbAdmin.searchOptions(name, {
       format: "xml"
@@ -526,6 +581,8 @@ backend.prototype._captureSearchOptionsFile = function(pwd,name, uri) {
 backend.prototype.clean = function(colsExclude,colsInclude) {
   var deferred = Q.defer();
   var self = this;
+this._dbAdmin = new this._driver();
+this._dbAdmin.configure(this._adminSettings);
 
   var qb = self._dbAdmin.createQuery();
   var cqt = [];
